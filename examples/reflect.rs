@@ -1,17 +1,27 @@
 //! Example service that reflects data.
 
 use clap::Parser;
-use daemonbase::log;
+use daemonbase::logging;
+use log::{warn};
 
 #[derive(Parser)]
 struct Args {
     #[command(flatten)]
-    log: daemonbase::log::Args,
+    log: logging::Args,
 }
 
 
 fn main() {
-    let args = Args::parse();
+    if logging::Config::init_logging().is_err() {
+        return
+    }
+    warn!("Logging initialized.");
 
-    eprintln!("log: {:?}", log::Config::from_args(&args.log));
+    let args = Args::parse();
+    let log = logging::Config::from_args(&args.log);
+    if log.switch_logging(false).is_err() {
+        return
+    }
+    warn!("Switched logging.");
+
 }
