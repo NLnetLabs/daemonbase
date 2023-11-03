@@ -2,6 +2,7 @@
 
 use clap::Parser;
 use daemonbase::logging;
+use daemonbase::logging::Logger;
 use log::{warn};
 
 #[derive(Parser)]
@@ -12,13 +13,13 @@ struct Args {
 
 
 fn main() {
-    if logging::Config::init_logging().is_err() {
+    if Logger::init_logging().is_err() {
         return
     }
     warn!("Logging initialized.");
 
     let args = Args::parse();
-    let log = logging::Config::from_args(&args.log);
+    let log = Logger::from_args(&args.log);
     if log.switch_logging(false).is_err() {
         return
     }

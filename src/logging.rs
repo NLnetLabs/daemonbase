@@ -11,11 +11,11 @@ use log::error;
 use crate::error::Failed;
 
 
-//------------ Config --------------------------------------------------------
+//------------ Logger --------------------------------------------------------
 
 /// The configuration for logging.
 #[derive(Clone, Debug)]
-pub struct Config {
+pub struct Logger {
     /// The log levels to be logged.
     level: LevelFilter,
 
@@ -23,7 +23,7 @@ pub struct Config {
     target: Target,
 }
 
-impl Config {
+impl Logger {
     /// Initialize logging.
     ///
     /// Initializes the logging system so it can be used before having
@@ -77,7 +77,7 @@ impl Config {
         &self,
         daemon: bool,
     ) -> Result<(), Failed> {
-        let logger = Logger::new(self, daemon)?;
+        let logger = Dispatch::new(self, daemon)?;
         GLOBAL_LOGGER.switch(logger);
         log::set_max_level(self.level);
         Ok(())
@@ -196,10 +196,10 @@ impl PartialEq for Target {
 impl Eq for Target { }
 
 
-//------------ Logger --------------------------------------------------------
+//------------ Dispatch ------------------------------------------------------
 
 /// Format and write log messages.
-struct Logger {
+struct Dispatch {
     /// Where to write messages to.
     target: Mutex<LogBackend>,
 
@@ -221,10 +221,10 @@ enum LogBackend {
     }
 }
 
-impl Logger {
+impl Dispatch {
     /// Creates a new logger from config and additional information.
     fn new(
-        config: &Config, daemon: bool,
+        config: &Logger, daemon: bool,
     ) -> Result<Self, Failed> {
         let target = match config.target {
             #[cfg(unix)]
@@ -614,7 +614,7 @@ mod unix {
 /// installed, it just writes all log output to stderr.
 struct GlobalLogger {
     /// The real logger. Can only be set once.
-    inner: OnceLock<Logger>,
+    inner: OnceLock<Dispatch>,
 }
 
 /// The static for the log crate.
@@ -627,7 +627,7 @@ impl GlobalLogger {
     }
 
     /// Switches to the proper logger.
-    fn switch(&self, logger: Logger) {
+    fn switch(&self, logger: Dispatch) {
         if self.inner.set(logger).is_err() {
             panic!("Tried to switch logger more than once.")
         }
