@@ -4,10 +4,13 @@ use std::{fmt, fs, io};
 use std::io::Write;
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use clap::ArgAction;
 use log::LevelFilter;
 use log::error;
+use serde::{Deserialize, Serialize};
+use crate::config::ConfigFile;
 use crate::error::Failed;
 
 
@@ -39,25 +42,103 @@ impl Logger {
         Ok(())
     }
 
-    /// Creates the config from command line arguments only.
+    /// Creates the logger from a config struct.
+    pub fn from_config(config: &Config) -> Result<Self, Failed> {
+        Ok(Self {
+            level: config.log_level.0,
+            target: match config.log_target {
+                TargetName::Default => Target::Default,
+                #[cfg(unix)]
+                TargetName::Syslog => {
+                    Target::Syslog(config.syslog_facility.into())
+                }
+                TargetName::Stderr => Target::Stderr,
+                TargetName::File => {
+                    match config.log_file.as_ref() {
+                        Some(file) => Target::File(file.clone()),
+                        None => {
+                            error!("Missing 'log-file' option in config.");
+                            return Err(Failed)
+                        }
+                    }
+                }
+            },
+        })
+    }
+
+    /// Creates the logger from a config file.
+    pub fn from_config_file(file: &mut ConfigFile) -> Result<Self, Failed> {
+        let level = file.take_from_str::<LevelName>(
+            "log-level"
+        )?.unwrap_or_default();
+        let target = file.take_from_str::<TargetName>(
+            "log"
+        )?.unwrap_or_default();
+        let log_file = file.take_path("log-file")?;
+
+        #[cfg(unix)]
+        let facility = file.take_from_str::<unix::FacilityArg>(
+            "syslog-facility"
+        )?;
+
+        let target = match target {
+            TargetName::Default => Target::Default,
+            #[cfg(unix)]
+            TargetName::Syslog => {
+                Target::Syslog(facility.unwrap_or_default().into())
+            }
+            TargetName::Stderr => Target::Stderr,
+            TargetName::File => {
+                match log_file {
+                    Some(file) => Target::File(file),
+                    None => {
+                        error!(
+                            "Failed in config file {}: \
+                             log target \"file\" requires 'log-file' value.",
+                            file.path().display()
+                        );
+                        return Err(Failed)
+                    }
+                }
+            }
+        };
+
+        Ok(Self { level: level.0, target })
+    }
+
+    /// Creates the logger from command line arguments only.
     pub fn from_args(args: &Args) -> Self {
         Self {
-            level: if args.verbose > 1 {
-                LevelFilter::Debug
-            }
-            else if args.verbose == 1 {
-                LevelFilter::Info
-            }
-            else if args.quiet > 1 {
-                LevelFilter::Off
-            }
-            else if args.quiet == 1 {
-                LevelFilter::Error
-            }
-            else {
-                LevelFilter::Warn
-            },
-            target: Target::from_args(args),
+            level: args.level(),
+            target: Target::opt_from_args(args).unwrap_or_default(),
+        }
+    }
+
+    /// Applies the arguments to the logger.
+    pub fn apply_args(&mut self, args: &Args) {
+        if let Some(level) = args.opt_level() {
+            self.level = level
+        }
+        if let Some(target) = Target::opt_from_args(args) {
+            self.target = target
+        }
+    }
+
+    /// Adds the configuration a config file
+    pub fn add_to_config_file(&self, config: &mut ConfigFile) {
+        config.insert_string("log-level", LevelName(self.level).as_str());
+        config.insert_string("log", self.target.name().as_str());
+        #[cfg(unix)]
+        if let Target::Syslog(facility) = self.target {
+            config.insert_string(
+                "syslog-facility",
+                unix::FacilityArg::from(facility).as_str()
+            );
+        }
+        if let Target::File(ref path) = self.target {
+            config.insert_string(
+                "log-file", path.display()
+            );
         }
     }
 
@@ -86,6 +167,126 @@ impl Logger {
     /// Rotates the log file if necessary.
     pub fn rotate_log(&self) -> Result<(), Failed> {
         GLOBAL_LOGGER.rotate()
+    }
+}
+
+
+//------------ Config --------------------------------------------------------
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct Config {
+    #[serde(rename = "log-level", default)]
+    log_level: LevelName,
+
+    #[serde(rename = "log", default)]
+    log_target: TargetName,
+
+    #[cfg(unix)]
+    #[serde(rename = "syslog-facility", default)]
+    syslog_facility: unix::FacilityArg,
+
+    #[serde(rename = "log-file")]
+    log_file: Option<PathBuf>,
+}
+
+
+//------------ TargetName ----------------------------------------------------
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[serde(try_from = "&str", into = "&'static str")]
+enum TargetName {
+    #[default]
+    Default,
+
+    Syslog,
+    Stderr,
+    File
+}
+
+impl TargetName {
+    fn as_str(self) -> &'static str {
+        match self {
+            TargetName::Default => "default",
+            TargetName::Syslog => "syslog",
+            TargetName::Stderr => "stderr",
+            TargetName::File => "file",
+        }
+    }
+}
+
+impl From<TargetName> for &'static str {
+    fn from(target: TargetName) -> Self {
+        target.as_str()
+    }
+}
+
+impl<'a> TryFrom<&'a str> for TargetName {
+    type Error = &'static str;
+
+    fn try_from(s: &'a str) -> Result<Self, Self::Error> {
+        match s {
+            "default" => Ok(TargetName::Default),
+            "syslog" => Ok(TargetName::Syslog),
+            "stderr" => Ok(TargetName::Stderr),
+            "file" => Ok(TargetName::File),
+            _ => Err("invalid log target")
+        }
+    }
+}
+
+impl FromStr for TargetName {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s)
+    }
+}
+
+
+//------------ LevelName -----------------------------------------------------
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(try_from = "&str", into = "&'static str")]
+struct LevelName(LevelFilter);
+
+impl Default for LevelName {
+    fn default() -> Self {
+        LevelName(LevelFilter::Warn)
+    }
+}
+
+impl LevelName {
+    fn as_str(self) -> &'static str {
+        match self.0 {
+            LevelFilter::Off => "off",
+            LevelFilter::Error => "error",
+            LevelFilter::Warn => "warn",
+            LevelFilter::Info => "info",
+            LevelFilter::Debug => "debug",
+            LevelFilter::Trace => "trace",
+        }
+    }
+}
+
+impl From<LevelName> for &'static str {
+    fn from(level: LevelName) -> Self {
+        level.as_str()
+    }
+}
+
+impl<'a> TryFrom<&'a str> for LevelName {
+    type Error = &'static str;
+
+    fn try_from(s: &'a str) -> Result<Self, Self::Error> {
+        LevelFilter::from_str(s).map(Self).map_err(|_| "invalid log level")
+    }
+}
+
+impl FromStr for LevelName {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s)
     }
 }
 
@@ -122,6 +323,30 @@ pub struct Args {
     syslog_facility: Option<unix::FacilityArg>,
 }
 
+impl Args {
+    fn opt_level(&self) -> Option<LevelFilter> {
+        if self.verbose > 1 {
+            Some(LevelFilter::Debug)
+        }
+        else if self.verbose == 1 {
+            Some(LevelFilter::Info)
+        }
+        else if self.quiet > 1 {
+            Some(LevelFilter::Off)
+        }
+        else if self.quiet == 1 {
+            Some(LevelFilter::Error)
+        }
+        else {
+            Some(LevelFilter::Warn)
+        }
+    }
+
+    fn level(&self) -> LevelFilter {
+        self.opt_level().unwrap_or(LevelFilter::Warn)
+    }
+}
+
 
 //------------ Target --------------------------------------------------------
 
@@ -151,25 +376,35 @@ pub enum Target {
 }
 
 impl Target {
-    fn from_args(args: &Args) -> Self {
+    fn opt_from_args(args: &Args) -> Option<Self> {
         #[cfg(unix)]
         if args.syslog {
-            return Self::Syslog(
+            return Some(Self::Syslog(
                 args.syslog_facility.map(Into::into).unwrap_or(
                     syslog::Facility::LOG_DAEMON
                 )
-            )
+            ))
         }
 
         if args.stderr {
-            return Self::Stderr
+            return Some(Self::Stderr)
         }
 
         if let Some(path) = args.logfile.as_ref() {
-            return Self::File(path.clone())
+            return Some(Self::File(path.clone()))
         }
 
-        Self::Default
+        None
+    }
+
+    fn name(&self) -> TargetName {
+        match self {
+            Target::Default => TargetName::Default,
+            #[cfg(unix)]
+            Target::Syslog(_) => TargetName::Syslog,
+            Target::Stderr => TargetName::Stderr,
+            Target::File(_) => TargetName::File,
+        }
     }
 }
 
@@ -535,7 +770,8 @@ mod unix {
     }
 
     /// Helper type to use the facility with a clap parser.
-    #[derive(Clone, Copy, Debug)]
+    #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+    #[serde(try_from = "&str", into = "&'static str")]
     pub struct FacilityArg(syslog::Facility);
 
     impl FacilityArg {
@@ -567,9 +803,45 @@ mod unix {
         }
     }
 
+    impl Default for FacilityArg {
+        fn default() -> Self {
+            Self(syslog::Facility::LOG_DAEMON)
+        }
+    }
+
+    impl From<syslog::Facility> for FacilityArg {
+        fn from(f: syslog::Facility) -> Self {
+            Self(f)
+        }
+    }
+
     impl From<FacilityArg> for syslog::Facility {
         fn from(arg: FacilityArg) -> Self {
             arg.0
+        }
+    }
+
+    impl From<FacilityArg> for &'static str {
+        fn from(arg: FacilityArg) -> Self {
+            arg.as_str()
+        }
+    }
+
+    impl<'a> TryFrom<&'a str> for FacilityArg {
+        type Error = &'static str;
+
+        fn try_from(s: &'a str) -> Result<Self, Self::Error> {
+            syslog::Facility::from_str(s).map(Self).map_err(|_| {
+                "invalid syslog facility"
+            })
+        }
+    }
+
+    impl FromStr for FacilityArg {
+        type Err = &'static str;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            Self::try_from(s)
         }
     }
 
