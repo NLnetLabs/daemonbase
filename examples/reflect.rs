@@ -1,28 +1,46 @@
 //! Example service that reflects data.
 
 use clap::Parser;
-use daemonbase::logging;
+use daemonbase::{logging, process};
+use daemonbase::error::Failed;
 use daemonbase::logging::Logger;
+use daemonbase::process::Process;
 use log::{warn};
 
 #[derive(Parser)]
 struct Args {
     #[command(flatten)]
     log: logging::Args,
+
+    /// Detach from the terminal
+    #[arg(short, long)]
+    detach: bool,
+
+    #[command(flatten)]
+    process: process::Args,
 }
 
 
-fn main() {
-    if Logger::init_logging().is_err() {
-        return
-    }
+fn _main() -> Result<(), Failed> {
+    Logger::init_logging()?;
     warn!("Logging initialized.");
 
     let args = Args::parse();
     let log = Logger::from_args(&args.log);
-    if log.switch_logging(false).is_err() {
-        return
-    }
-    warn!("Switched logging.");
+    let mut process = Process::from_args(args.process);
 
+    log.switch_logging(args.detach)?;
+    process.setup_daemon(args.detach)?;
+
+    // This is where you create listener sockets so they can use privileged
+    // ports.
+
+    process.drop_privileges()?;
+
+    warn!("Up and running.");
+    Ok(())
+}
+
+fn main() {
+    let _ = _main();
 }
