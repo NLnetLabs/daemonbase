@@ -27,7 +27,8 @@ jobs:
     # clippy::unknown_clippy_lints being removed.
     - if: matrix.rust == 'stable'
       run: rustup component add clippy
-    - run: cargo clippy --all --tests --examples --all-features -- -D warnings
+    - if: matrix.rust == 'stable'
+      run: cargo clippy --all --tests --examples --all-features -- -D warnings
 
     # Build
     - run: cargo build --verbose --all --all-features
