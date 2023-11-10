@@ -38,7 +38,13 @@ fn _main() -> Result<(), Failed> {
     process.drop_privileges()?;
 
     warn!("Up and running.");
-    Ok(())
+
+    // This is where we do something useful later.
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(60));
+    }
+
+    //Ok(())
 }
 
 fn main() {

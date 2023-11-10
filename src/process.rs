@@ -13,15 +13,21 @@ pub use self::noop::{Args, Config, Process};
 ///
 #[cfg(unix)]
 mod unix {
+    use std::io;
     use std::env::set_current_dir;
+    use std::os::fd::{AsFd, AsRawFd};
     use std::os::unix::io::RawFd;
     use std::path::{Path, PathBuf, StripPrefixError};
     use std::str::FromStr;
     use log::error;
     use nix::fcntl::{flock, open, FlockArg, OFlag};
     use nix::sys::stat::Mode;
+    use nix::sys::stat::umask;
     use nix::unistd::{Gid, Group, Uid, User};
-    use nix::unistd::{chroot, fork, getpid, setgid, setuid, write};
+    use nix::unistd::{
+        close, chown, chroot, dup2, fork, getpid, setgid, setsid, setuid,
+        write,
+    };
     use serde::{Deserialize, Serialize};
     use crate::config::ConfigFile;
     use crate::error::Failed;
@@ -103,20 +109,34 @@ mod unix {
             self.create_pid_file()?;
             
             if background {
+                // Fork to detach from terminal.
                 self.perform_fork()?;
-            }
 
-            self.change_working_dir()?;
+                // Create a new session.
+                if let Err(err) = setsid() {
+                    error!("Fatal: failed to crates new session: {}", err);
+                    return Err(Failed)
+                }
 
-            // set_sid 
-            // umask
-
-            // You always for twice ...
-            if background {
+                // Fork again to stop being the session leader so we can’t
+                // acquire a controlling terminal on SVR4.
                 self.perform_fork()?;
-            }
 
-            // redirect_standard_streams
+                // Change the working directory to either what’s configured
+                // or / (so we don’t block a file system from being umounted).
+                self.change_working_dir(true)?;
+
+                // Set umask to 0 -- the mask is used “inverted,” that is,
+                // everything set in the mask is removed from the actual
+                // mode of a created file. Setting it to 0 allows everything.
+                umask(Mode::empty());
+
+                // Redirect the three standard streams to /dev/null.
+                self.redirect_stdio()?;
+            }
+            else {
+                self.change_working_dir(false)?;
+            }
 
             // chown_pid_file
 
@@ -184,6 +204,20 @@ mod unix {
                     return Err(Failed)
                 }
             };
+
+            if self.config.user.is_some() || self.config.group.is_some() {
+                if let Err(err) = chown(
+                    path,
+                    self.config.user.as_ref().map(|user| user.uid),
+                    self.config.group.as_ref().map(|group| group.gid),
+                ) {
+                    error!(
+                        "Fatal: failed to change owner of pid file: {}", err
+                    );
+                    return Err(Failed)
+                }
+            }
+
             if let Err(err) = flock(fd, FlockArg::LockExclusiveNonblock) {
                 error!("Fatal: cannot lock PID file {}: {}",
                     path.display(), err
@@ -235,16 +269,62 @@ mod unix {
         }
 
         /// Changes the current working directory in necessary.
-        fn change_working_dir(&self) -> Result<(), Failed> {
-            if let Some(path) = self.config.working_dir.as_ref().or(
+        fn change_working_dir(&self, background: bool) -> Result<(), Failed> {
+            let mut path = self.config.working_dir.as_ref().or(
                 self.config.chroot.as_ref()
-            ) {
+            ).map(PathBuf::as_path);
+            if background {
+                path = path.or(Some(Path::new("/")));
+            }
+            if let Some(path) = path {
                 if let Err(err) = set_current_dir(path) {
                     error!("Fatal: failed to set working directory {}: {}",
                         path.display(), err
                     );
                     return Err(Failed)
                 }
+            }
+
+            Ok(())
+        }
+
+        /// Changes the stdio streams to /dev/null.
+        fn redirect_stdio(&self) -> Result<(), Failed> {
+            let dev_null = match open(
+                "/dev/null", OFlag::O_RDWR,
+                Mode::empty()
+            ) {
+                Ok(fd) => fd,
+                Err(err) => {
+                    error!("Fatal: failed to open /dev/null: {}", err);
+                    return Err(Failed)
+                }
+            };
+
+            if let Err(err) = dup2(dev_null, io::stdin().as_fd().as_raw_fd()) {
+                error!(
+                    "Fatal: failed to redirect stdio to /dev/null: {}", err
+                );
+                return Err(Failed)
+            }
+            if let Err(err) = dup2(dev_null, io::stdout().as_fd().as_raw_fd()) {
+                error!(
+                    "Fatal: failed to redirect stdout to /dev/null: {}", err
+                );
+                return Err(Failed)
+            }
+            if let Err(err) = dup2(dev_null, io::stderr().as_fd().as_raw_fd()) {
+                error!(
+                    "Fatal: failed to redirect stderr to /dev/null: {}", err
+                );
+                return Err(Failed)
+            }
+
+            if let Err(err) = close(dev_null) {
+                error!(
+                    "Fatal: failed to close /dev/null: {}", err
+                );
+                return Err(Failed)
             }
 
             Ok(())
