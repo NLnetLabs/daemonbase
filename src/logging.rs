@@ -3,7 +3,7 @@
 use std::{fmt, fs, io};
 use std::io::Write;
 use std::ops::{Deref, DerefMut};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use clap::ArgAction;
@@ -187,6 +187,17 @@ pub struct Config {
 
     #[serde(rename = "log-file")]
     log_file: Option<PathBuf>,
+}
+
+impl Config {
+    /// Adjusts any relative paths to be relative to a given base path.
+    pub fn adjust_paths(&mut self, base_path: &impl AsRef<Path>) {
+        if let Some(log_file) = self.log_file.as_ref().map(|path| {
+            base_path.as_ref().join(path)
+        }) {
+            self.log_file = Some(log_file);
+        }
+    }
 }
 
 
