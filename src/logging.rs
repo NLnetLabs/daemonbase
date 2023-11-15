@@ -198,6 +198,7 @@ enum TargetName {
     #[default]
     Default,
 
+    #[cfg(unix)]
     Syslog,
     Stderr,
     File
@@ -207,6 +208,7 @@ impl TargetName {
     fn as_str(self) -> &'static str {
         match self {
             TargetName::Default => "default",
+            #[cfg(unix)]
             TargetName::Syslog => "syslog",
             TargetName::Stderr => "stderr",
             TargetName::File => "file",
@@ -226,6 +228,7 @@ impl<'a> TryFrom<&'a str> for TargetName {
     fn try_from(s: &'a str) -> Result<Self, Self::Error> {
         match s {
             "default" => Ok(TargetName::Default),
+            #[cfg(unix)]
             "syslog" => Ok(TargetName::Syslog),
             "stderr" => Ok(TargetName::Stderr),
             "file" => Ok(TargetName::File),
