@@ -445,7 +445,7 @@ mod unix {
         fn try_from(name: String) -> Result<Self, Self::Error> {
             match User::from_name(&name) {
                 Ok(Some(user)) => {
-                    Ok(UserId { uid: user.uid, name: name })
+                    Ok(UserId { uid: user.uid, name })
                 }
                 Ok(None) => {
                     Err(format!("unknown user '{}'", name))
@@ -493,7 +493,7 @@ mod unix {
         fn try_from(name: String) -> Result<Self, Self::Error> {
             match Group::from_name(&name) {
                 Ok(Some(group)) => {
-                    Ok(GroupId { gid: group.gid, name: name })
+                    Ok(GroupId { gid: group.gid, name })
                 }
                 Ok(None) => {
                     Err(format!("unknown user '{}'", name))
