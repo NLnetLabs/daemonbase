@@ -29,8 +29,7 @@ pub struct Failed;
 
 /// An error happened that should lead to terminating the program.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct ExitError {
-}
+pub struct ExitError(());
 
 impl ExitError {
     pub fn exit() -> ! {
