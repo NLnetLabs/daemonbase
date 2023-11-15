@@ -28,28 +28,20 @@ pub struct Failed;
 //------------ ExitError -----------------------------------------------------
 
 /// An error happened that should lead to terminating the program.
-#[derive(Clone, Copy, Debug)]
-pub enum ExitError {
-    /// Something has happened.
-    ///
-    /// This should be exit status 1.
-    Generic,
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ExitError {
+}
 
-    /// Incomplete update.
-    ///
-    /// This should be exit status 2.
-    IncompleteUpdate,
-
-    /// An object could not be validated.
-    ///
-    /// This should be exit status 3.
-    Invalid,
+impl ExitError {
+    pub fn exit() -> ! {
+        std::process::exit(1);
+    }
 }
 
 impl From<Failed> for ExitError {
     fn from(_: Failed) -> ExitError {
         error!("Fatal error. Exiting.");
-        ExitError::Generic
+        ExitError::default()
     }
 }
 
