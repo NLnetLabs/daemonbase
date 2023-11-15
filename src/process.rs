@@ -29,7 +29,7 @@ mod unix {
         write,
     };
     use serde::{Deserialize, Serialize};
-    use crate::config::ConfigFile;
+    use crate::config::{ConfigFile, ConfigPath};
     use crate::error::Failed;
 
 
@@ -151,7 +151,7 @@ mod unix {
         /// administrator permissions and change the file system root.
         pub fn drop_privileges(&mut self) -> Result<(), Failed> {
             if let Some(path) = self.config.chroot.as_ref() {
-                if let Err(err) = chroot(path) {
+                if let Err(err) = chroot(path.as_path()) {
                     error!("Fatal: cannot chroot to '{}': {}'",
                         path.display(), err
                     );
@@ -192,7 +192,7 @@ mod unix {
             };
 
             let fd = match open(
-                path,
+                path.as_path(),
                 OFlag::O_WRONLY | OFlag::O_CREAT | OFlag::O_TRUNC,
                 Mode::from_bits_truncate(0o666)
             ) {
@@ -207,7 +207,7 @@ mod unix {
 
             if self.config.user.is_some() || self.config.group.is_some() {
                 if let Err(err) = chown(
-                    path,
+                    path.as_path(),
                     self.config.user.as_ref().map(|user| user.uid),
                     self.config.group.as_ref().map(|group| group.gid),
                 ) {
@@ -272,7 +272,7 @@ mod unix {
         fn change_working_dir(&self, background: bool) -> Result<(), Failed> {
             let mut path = self.config.working_dir.as_ref().or(
                 self.config.chroot.as_ref()
-            ).map(PathBuf::as_path);
+            ).map(ConfigPath::as_path);
             if background {
                 path = path.or(Some(Path::new("/")));
             }
@@ -338,14 +338,14 @@ mod unix {
     pub struct Config {
         /// The optional PID file for server mode.
         #[serde(rename = "pid-file")]
-        pid_file: Option<PathBuf>,
+        pid_file: Option<ConfigPath>,
 
         /// The optional working directory for server mode.
         #[serde(rename = "working-dir")]
-        working_dir: Option<PathBuf>,
+        working_dir: Option<ConfigPath>,
 
         /// The optional directory to chroot to in server mode.
-        chroot: Option<PathBuf>,
+        chroot: Option<ConfigPath>,
 
         /// The name of the user to change to in server mode.
         user: Option<UserId>,
@@ -404,15 +404,15 @@ mod unix {
     pub struct Args {
         /// The file for keep the daemon process's PID in
         #[arg(long, value_name = "PATH")]
-        pid_file: Option<PathBuf>,
+        pid_file: Option<ConfigPath>,
 
         /// The working directory of the daemon process
         #[arg(long, value_name = "PATH")]
-        working_dir: Option<PathBuf>,
+        working_dir: Option<ConfigPath>,
 
         /// Root directory for the daemon process
         #[arg(long, value_name = "PATH")]
-        chroot: Option<PathBuf>,
+        chroot: Option<ConfigPath>,
 
         /// User for the daemon process
         #[arg(long, value_name = "UID")]

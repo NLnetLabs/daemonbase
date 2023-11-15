@@ -1,10 +1,12 @@
 
-use std::{env, fmt, fs};
+use std::{env, fmt, fs, ops};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use log::error;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use toml_edit as toml;
 use crate::error::Failed;
 
@@ -312,8 +314,12 @@ impl ConfigFile {
     ///
     /// Returns `Ok(None)` if the key does not exist. Returns an error if the
     /// key exists but the value isn’t a string.
-    pub fn take_path(&mut self, key: &str) -> Result<Option<PathBuf>, Failed> {
-        self.take_string(key).map(|opt| opt.map(|path| self.dir.join(path)))
+    pub fn take_path(
+        &mut self, key: &str
+    ) -> Result<Option<ConfigPath>, Failed> {
+        self.take_string(key).map(|opt| {
+            opt.map(|path| self.dir.join(path).into())
+        })
     }
 
     /// Takes a mandatory path value from the config file.
@@ -324,7 +330,7 @@ impl ConfigFile {
     /// [`take_path`]: #method.take_path
     pub fn take_mandatory_path(
         &mut self, key: &str
-    ) -> Result<PathBuf, Failed> {
+    ) -> Result<ConfigPath, Failed> {
         match self.take_path(key)? {
             Some(res) => Ok(res),
             None => {
@@ -445,16 +451,16 @@ impl ConfigFile {
     pub fn take_path_array(
         &mut self,
         key: &str
-    ) -> Result<Option<Vec<PathBuf>>, Failed> {
+    ) -> Result<Option<Vec<ConfigPath>>, Failed> {
         match self.take_value(key)? {
             Some(toml::Value::String(value)) => {
-                Ok(Some(vec![self.dir.join(value.into_value())]))
+                Ok(Some(vec![self.dir.join(value.into_value()).into()]))
             }
             Some(toml::Value::Array(vec)) => {
                 let mut res = Vec::new();
                 for value in vec.into_iter() {
                     if let toml::Value::String(value) = value {
-                        res.push(self.dir.join(value.into_value()))
+                        res.push(self.dir.join(value.into_value()).into())
                     }
                     else {
                         error!(
@@ -605,6 +611,176 @@ impl ConfigFile {
             Err(_) => path
         };
         self.insert_string(key, path.display())
+    }
+}
+
+
+//------------ ConfigPath ----------------------------------------------------
+
+/// A path encountered in a config file.
+///
+/// This is a basically a `PathBuf` that, when, deserialized resolves all
+/// relative paths from a certain base path so that all relative paths
+/// encountered in a config file are automatically resolved relative to the
+/// location of the config file.
+///
+/// In order for this to work, call [`set_base_path`][Self::set_base_path]
+/// before deserialization or serialization and clear it afterwards with
+/// [`clear_base_path`.][Self::clear_base_path].
+///
+/// When used as a command line argument with clap, relative paths will be
+/// resolved into an absolute path based on the current directory.
+///
+/// Under the hood, this uses a thread local variable, so (de-) serializers
+/// that somehow spawn threads may not work as expected.
+#[derive(
+    Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd,
+)]
+pub struct ConfigPath(PathBuf);
+
+impl ConfigPath {
+    thread_local!(
+        static BASE_PATH: RefCell<Option<PathBuf>> = RefCell::new(None)
+    );
+
+    pub fn set_base_path(path: PathBuf) {
+        Self::BASE_PATH.with(|base_path| {
+            base_path.replace(Some(path));
+        })
+    }
+
+    pub fn clear_base_path() {
+        Self::BASE_PATH.with(|base_path| {
+            base_path.replace(None);
+        })
+    }
+
+    fn construct(path: PathBuf) -> Self {
+        Self::BASE_PATH.with(|base_path| {
+            Self(
+                match base_path.borrow().as_ref() {
+                    Some(base_path) => base_path.join(&path),
+                    None => path
+                }
+            )
+        })
+    }
+
+    fn deconstruct(&self) -> &Path {
+        Self::BASE_PATH.with(|base_path| {
+            match base_path.borrow().as_ref() {
+                Some(base_path) => {
+                    match self.0.strip_prefix(base_path) {
+                        Ok(path) => path,
+                        Err(_) => self.0.as_ref(),
+                    }
+                }
+                None => self.0.as_ref()
+            }
+        })
+    }
+}
+
+impl ConfigPath {
+    /// Returns the reference to the actual path.
+    pub fn as_path(&self) -> &Path {
+        self.0.as_ref()
+    }
+}
+
+impl From<PathBuf> for ConfigPath {
+    fn from(path: PathBuf) -> Self {
+        Self(path)
+    }
+}
+
+impl From<String> for ConfigPath {
+    fn from(path: String) -> Self {
+        Self(path.into())
+    }
+}
+
+impl From<ConfigPath> for PathBuf {
+    fn from(path: ConfigPath) -> Self {
+        path.0
+    }
+}
+
+impl ops::Deref for ConfigPath {
+    type Target = Path;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
+    }
+}
+
+impl AsRef<Path> for ConfigPath {
+    fn as_ref(&self) -> &Path {
+        self.0.as_ref()
+    }
+}
+
+impl<'de> Deserialize<'de> for ConfigPath {
+    fn deserialize<D: Deserializer<'de>>(
+        deserializer: D
+    ) -> Result<Self, D::Error> {
+        Ok(Self::construct(PathBuf::deserialize(deserializer)?))
+    }
+}
+
+impl Serialize for ConfigPath {
+    fn serialize<S: Serializer>(
+        &self, serializer: S
+    ) -> Result<S::Ok, S::Error> {
+        self.deconstruct().serialize(serializer)
+    }
+}
+
+impl clap::builder::ValueParserFactory for ConfigPath {
+    type Parser = ConfigPathParser;
+
+    fn value_parser() -> Self::Parser {
+        ConfigPathParser
+    }
+}
+
+
+//------------ ConfigPathParser ----------------------------------------------
+
+#[derive(Clone)]
+pub struct ConfigPathParser;
+
+impl clap::builder::TypedValueParser for ConfigPathParser {
+    type Value = ConfigPath;
+
+    fn parse_ref(
+        &self,
+        cmd: &clap::Command,
+        arg: Option<&clap::Arg>,
+        value: &std::ffi::OsStr,
+    ) -> Result<Self::Value, clap::Error> {
+        let path = clap::builder::PathBufValueParser::new().parse_ref(
+            cmd, arg, value
+        )?;
+        if path.is_absolute() {
+            return Ok(ConfigPath(path));
+        }
+        let cur_dir = match env::current_dir() {
+            Ok(dir) => dir,
+            Err(err) => {
+                let mut res = clap::Error::new(
+                    clap::error::ErrorKind::Io
+                ).with_cmd(cmd);
+                res.insert(
+                    clap::error::ContextKind::Custom,
+                    clap::error::ContextValue::String(
+                        format!("Failed to get current directory: {}", err)
+                    )
+                );
+                return Err(res);
+            }
+        };
+        Ok(ConfigPath(cur_dir.join(path)))
     }
 }
 

@@ -3,14 +3,14 @@
 use std::{fmt, fs, io};
 use std::io::Write;
 use std::ops::{Deref, DerefMut};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use clap::ArgAction;
 use log::LevelFilter;
 use log::error;
 use serde::{Deserialize, Serialize};
-use crate::config::ConfigFile;
+use crate::config::{ConfigFile, ConfigPath};
 use crate::error::Failed;
 
 
@@ -55,7 +55,7 @@ impl Logger {
                 TargetName::Stderr => Target::Stderr,
                 TargetName::File => {
                     match config.log_file.as_ref() {
-                        Some(file) => Target::File(file.clone()),
+                        Some(file) => Target::File(file.clone().into()),
                         None => {
                             error!("Missing 'log-file' option in config.");
                             return Err(Failed)
@@ -90,7 +90,7 @@ impl Logger {
             TargetName::Stderr => Target::Stderr,
             TargetName::File => {
                 match log_file {
-                    Some(file) => Target::File(file),
+                    Some(file) => Target::File(file.into()),
                     None => {
                         error!(
                             "Failed in config file {}: \
@@ -186,18 +186,7 @@ pub struct Config {
     syslog_facility: unix::FacilityArg,
 
     #[serde(rename = "log-file")]
-    log_file: Option<PathBuf>,
-}
-
-impl Config {
-    /// Adjusts any relative paths to be relative to a given base path.
-    pub fn adjust_paths(&mut self, base_path: &impl AsRef<Path>) {
-        if let Some(log_file) = self.log_file.as_ref().map(|path| {
-            base_path.as_ref().join(path)
-        }) {
-            self.log_file = Some(log_file);
-        }
-    }
+    log_file: Option<ConfigPath>,
 }
 
 
@@ -329,7 +318,7 @@ pub struct Args {
 
     /// Log to this file
     #[arg(long, value_name = "PATH", conflicts_with = "stderr")]
-    logfile: Option<PathBuf>,
+    logfile: Option<ConfigPath>,
 
     /// Facility to use for syslog logging
     #[cfg(unix)]
@@ -405,7 +394,7 @@ impl Target {
         }
 
         if let Some(path) = args.logfile.as_ref() {
-            return Some(Self::File(path.clone()))
+            return Some(Self::File(path.clone().into()))
         }
 
         None
