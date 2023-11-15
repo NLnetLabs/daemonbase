@@ -2,7 +2,7 @@
 name = "daemonbase"
 version = "0.1.0-dev"
 edition = "2021"
-rust-version = "1.63"
+rust-version = "1.67"
 authors = ["NLnet Labs <rust-team@nlnetlabs.nl>"]
 description = "A library for providing the foundation for daemon processes."
 documentation = "https://docs.rs/daemonbase/"
