@@ -49,23 +49,6 @@ mod unix {
             Self { config, pid_file: None }
         }
 
-        /// Creates the proces from a config file.
-        pub fn from_config_file(
-            file: &mut ConfigFile
-        ) -> Result<Self, Failed> {
-            Ok(Self::from_config(Config::from_config_file(file)?))
-        }
-
-        /// Creates the process from command line arguments only.
-        pub fn from_args(args: Args) -> Self {
-            Self::from_config(Config::from_args(args))
-        }
-
-        /// Applies the arguments to the process.
-        pub fn apply_args(&mut self, args: Args) {
-            self.config.apply_args(args)
-        }
-
         /// Adjusts a path for use after dropping privileges.
         ///
         /// Since [`drop_privileges`][Self::drop_privileges] may change the
@@ -355,7 +338,9 @@ mod unix {
     }
 
     impl Config {
-        fn from_config_file(file: &mut ConfigFile) -> Result<Self, Failed> {
+        pub fn from_config_file(
+            file: &mut ConfigFile
+        ) -> Result<Self, Failed> {
             Ok(Config {
                 pid_file: file.take_path("pid-file")?,
                 working_dir: file.take_path("working-dir")?,
@@ -539,28 +524,9 @@ mod noop {
 
     impl Process {
         /// Creates the process from a config struct.
-        pub fn from_config(config: &Config) -> Self {
+        pub fn from_config(config: Config) -> Self {
             let _ = config;
             Self
-        }
-
-        /// Creates the proces from a config file.
-        pub fn from_config_file(
-            file: &mut ConfigFile
-        ) -> Result<Self, Failed> {
-            let _ = file;
-            Ok(Self)
-        }
-
-        /// Creates the process from command line arguments only.
-        pub fn from_args(args: Args) -> Self {
-            let _ = args;
-            Self
-        }
-
-        /// Applies the arguments to the process.
-        pub fn apply_args(&mut self, args: Args) {
-            let _ = args;
         }
 
         /// Adjusts a path for use after dropping privileges.
@@ -611,6 +577,27 @@ mod noop {
 
     #[derive(Clone, Debug, Default, Deserialize, Serialize)]
     pub struct Config;
+
+    impl Config {
+        /// Creates the proces from a config file.
+        pub fn from_config_file(
+            file: &mut ConfigFile
+        ) -> Result<Self, Failed> {
+            let _ = file;
+            Ok(Self)
+        }
+
+        /// Creates the process from command line arguments only.
+        pub fn from_args(args: Args) -> Self {
+            let _ = args;
+            Self
+        }
+
+        /// Applies the arguments to the process.
+        pub fn apply_args(&mut self, args: Args) {
+            let _ = args;
+        }
+    }
 
     //-------- Args ----------------------------------------------------------
 
