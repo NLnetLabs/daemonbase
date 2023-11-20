@@ -408,6 +408,12 @@ mod unix {
         group: Option<GroupId>,
     }
 
+    impl Args {
+        pub fn into_config(self) -> Config {
+            Config::from_args(self)
+        }
+    }
+
 
     //-------- UserId --------------------------------------------------------
 
@@ -604,5 +610,11 @@ mod noop {
     #[derive(Clone, Debug, clap::Args)]
     #[group(id = "process-args")]
     pub struct Args;
+
+    impl Args {
+        pub fn into_config(&self) -> Config {
+            Config
+        }
+    }
 }
 

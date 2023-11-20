@@ -27,7 +27,7 @@ fn _main() -> Result<(), ExitError> {
 
     let args = Args::parse();
     let log = Logger::from_config(&args.log.to_config())?;
-    let mut process = Process::from_args(args.process);
+    let mut process = Process::from_config(args.process.into_config());
 
     log.switch_logging(args.detach)?;
     process.setup_daemon(args.detach)?;
