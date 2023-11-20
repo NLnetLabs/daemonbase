@@ -619,17 +619,16 @@ impl ConfigFile {
 
 /// A path encountered in a config file.
 ///
-/// This is a basically a `PathBuf` that, when, deserialized resolves all
-/// relative paths from a certain base path so that all relative paths
-/// encountered in a config file are automatically resolved relative to the
-/// location of the config file.
+/// This is a basically a `PathBuf` that, when, deserialized or used as a
+/// command line argument resolves all relative paths into absolute paths.
 ///
-/// In order for this to work, call [`set_base_path`][Self::set_base_path]
-/// before deserialization or serialization and clear it afterwards with
+/// When used as a command line argument with clap, it will use the current
+/// working directory as the base path.
+///
+/// When used with serde, the base path can be through
+/// [`set_base_path`][Self::set_base_path] before deserialization or
+/// serialization and cleared afterwards with
 /// [`clear_base_path`.][Self::clear_base_path].
-///
-/// When used as a command line argument with clap, relative paths will be
-/// resolved into an absolute path based on the current directory.
 ///
 /// Under the hood, this uses a thread local variable, so (de-) serializers
 /// that somehow spawn threads may not work as expected.
