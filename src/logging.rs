@@ -11,7 +11,7 @@ use log::LevelFilter;
 use log::error;
 use serde::{Deserialize, Serialize};
 use crate::config::{ConfigFile, ConfigPath};
-use crate::error::Failed;
+use crate::error::{ExitError, Failed};
 
 
 //------------ Logger --------------------------------------------------------
@@ -33,11 +33,11 @@ impl Logger {
     /// read the configuration. The function sets a maximum log level of
     /// `warn`, leading only printing important information, and directs all
     /// logging to stderr.
-    pub fn init_logging() -> Result<(), Failed> {
+    pub fn init_logging() -> Result<(), ExitError> {
         log::set_max_level(LevelFilter::Warn);
         if let Err(err) = log::set_logger(&GLOBAL_LOGGER) {
             eprintln!("Failed to initialize logger: {}.\nAborting.", err);
-            return Err(Failed)
+            return Err(ExitError::default())
         }
         Ok(())
     }
@@ -64,82 +64,6 @@ impl Logger {
                 }
             },
         })
-    }
-
-    /// Creates the logger from a config file.
-    pub fn from_config_file(file: &mut ConfigFile) -> Result<Self, Failed> {
-        let level = file.take_from_str::<LevelName>(
-            "log-level"
-        )?.unwrap_or_default();
-        let target = file.take_from_str::<TargetName>(
-            "log"
-        )?.unwrap_or_default();
-        let log_file = file.take_path("log-file")?;
-
-        #[cfg(unix)]
-        let facility = file.take_from_str::<unix::FacilityArg>(
-            "syslog-facility"
-        )?;
-
-        let target = match target {
-            TargetName::Default => Target::Default,
-            #[cfg(unix)]
-            TargetName::Syslog => {
-                Target::Syslog(facility.unwrap_or_default().into())
-            }
-            TargetName::Stderr => Target::Stderr,
-            TargetName::File => {
-                match log_file {
-                    Some(file) => Target::File(file.into()),
-                    None => {
-                        error!(
-                            "Failed in config file {}: \
-                             log target \"file\" requires 'log-file' value.",
-                            file.path().display()
-                        );
-                        return Err(Failed)
-                    }
-                }
-            }
-        };
-
-        Ok(Self { level: level.0, target })
-    }
-
-    /// Creates the logger from command line arguments only.
-    pub fn from_args(args: &Args) -> Self {
-        Self {
-            level: args.level(),
-            target: Target::opt_from_args(args).unwrap_or_default(),
-        }
-    }
-
-    /// Applies the arguments to the logger.
-    pub fn apply_args(&mut self, args: &Args) {
-        if let Some(level) = args.opt_level() {
-            self.level = level
-        }
-        if let Some(target) = Target::opt_from_args(args) {
-            self.target = target
-        }
-    }
-
-    /// Adds the configuration a config file
-    pub fn add_to_config_file(&self, config: &mut ConfigFile) {
-        config.insert_string("log-level", LevelName(self.level).as_str());
-        config.insert_string("log", self.target.name().as_str());
-        #[cfg(unix)]
-        if let Target::Syslog(facility) = self.target {
-            config.insert_string(
-                "syslog-facility",
-                unix::FacilityArg::from(facility).as_str()
-            );
-        }
-        if let Target::File(ref path) = self.target {
-            config.insert_string(
-                "log-file", path.display()
-            );
-        }
     }
 
     /// Switches logging to the configured target.
@@ -187,6 +111,75 @@ pub struct Config {
 
     #[serde(rename = "log-file")]
     log_file: Option<ConfigPath>,
+}
+
+impl Config {
+    /// Creates the logger from a config file.
+    pub fn from_config_file(file: &mut ConfigFile) -> Result<Self, Failed> {
+        Ok(Self {
+            log_level: file.take_from_str::<LevelName>(
+                "log-level"
+            )?.unwrap_or_default(),
+            log_target: file.take_from_str::<TargetName>(
+                "log"
+            )?.unwrap_or_default(),
+            #[cfg(unix)]
+            syslog_facility: file.take_from_str::<unix::FacilityArg>(
+                "syslog-facility"
+            )?.unwrap_or_default(),
+            log_file: file.take_path("log-file")?,
+        })
+    }
+
+    pub fn from_args(args: &Args) -> Self {
+        let mut res = Self::default();
+        res.apply_args(args);
+        res
+    }
+
+    /// Applies the arguments to the logger.
+    pub fn apply_args(&mut self, args: &Args) {
+        if let Some(level) = args.opt_level() {
+            self.log_level = LevelName(level)
+        }
+
+        if args.stderr {
+            self.log_target = TargetName::Stderr;
+        }
+        else if let Some(path) = args.logfile.as_ref() {
+            self.log_target = TargetName::File;
+            self.log_file = Some(path.clone());
+        }
+        else {
+            #[cfg(unix)]
+            if args.syslog {
+                self.log_target = TargetName::Syslog;
+            }
+        }
+
+        #[cfg(unix)]
+        if let Some(facility) = args.syslog_facility {
+            self.syslog_facility = facility;
+        }
+    }
+
+    /// Adds the configuration a config file
+    pub fn add_to_config_file(&self, config: &mut ConfigFile) {
+        config.insert_string("log-level", self.log_level.as_str());
+        config.insert_string("log", self.log_target.as_str());
+        #[cfg(unix)]
+        if !self.syslog_facility.is_default() {
+            config.insert_string(
+                "syslog-facility",
+                self.syslog_facility.as_str()
+            );
+        }
+        if let Some(path) = self.log_file.as_ref() {
+            config.insert_string(
+                "log-file", path.display()
+            );
+        }
+    }
 }
 
 
@@ -327,6 +320,10 @@ pub struct Args {
 }
 
 impl Args {
+    pub fn to_config(&self) -> Config {
+        Config::from_args(self)
+    }
+
     fn opt_level(&self) -> Option<LevelFilter> {
         if self.verbose > 1 {
             Some(LevelFilter::Debug)
@@ -343,10 +340,6 @@ impl Args {
         else {
             Some(LevelFilter::Warn)
         }
-    }
-
-    fn level(&self) -> LevelFilter {
-        self.opt_level().unwrap_or(LevelFilter::Warn)
     }
 }
 
@@ -376,39 +369,6 @@ pub enum Target {
     ///
     /// The argument is the file name.
     File(PathBuf)
-}
-
-impl Target {
-    fn opt_from_args(args: &Args) -> Option<Self> {
-        #[cfg(unix)]
-        if args.syslog {
-            return Some(Self::Syslog(
-                args.syslog_facility.map(Into::into).unwrap_or(
-                    syslog::Facility::LOG_DAEMON
-                )
-            ))
-        }
-
-        if args.stderr {
-            return Some(Self::Stderr)
-        }
-
-        if let Some(path) = args.logfile.as_ref() {
-            return Some(Self::File(path.clone().into()))
-        }
-
-        None
-    }
-
-    fn name(&self) -> TargetName {
-        match self {
-            Target::Default => TargetName::Default,
-            #[cfg(unix)]
-            Target::Syslog(_) => TargetName::Syslog,
-            Target::Stderr => TargetName::Stderr,
-            Target::File(_) => TargetName::File,
-        }
-    }
 }
 
 
@@ -778,6 +738,10 @@ mod unix {
     pub struct FacilityArg(syslog::Facility);
 
     impl FacilityArg {
+        pub fn is_default(self) -> bool {
+            matches!(self.0, syslog::Facility::LOG_DAEMON)
+        }
+
         pub fn as_str(self) -> &'static str {
             use syslog::Facility::*;
 

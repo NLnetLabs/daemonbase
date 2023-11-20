@@ -2,7 +2,7 @@
 
 use clap::Parser;
 use daemonbase::{logging, process};
-use daemonbase::error::Failed;
+use daemonbase::error::ExitError;
 use daemonbase::logging::Logger;
 use daemonbase::process::Process;
 use log::{warn};
@@ -21,12 +21,12 @@ struct Args {
 }
 
 
-fn _main() -> Result<(), Failed> {
+fn _main() -> Result<(), ExitError> {
     Logger::init_logging()?;
     warn!("Logging initialized.");
 
     let args = Args::parse();
-    let log = Logger::from_args(&args.log);
+    let log = Logger::from_config(&args.log.to_config())?;
     let mut process = Process::from_args(args.process);
 
     log.switch_logging(args.detach)?;
