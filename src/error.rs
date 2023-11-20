@@ -32,7 +32,7 @@ pub struct Failed;
 pub struct ExitError(());
 
 impl ExitError {
-    pub fn exit() -> ! {
+    pub fn exit(self) -> ! {
         std::process::exit(1);
     }
 }
