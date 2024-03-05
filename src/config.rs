@@ -689,13 +689,13 @@ impl ConfigPath {
 
 impl From<PathBuf> for ConfigPath {
     fn from(path: PathBuf) -> Self {
-        Self(path)
+        Self::construct(path)
     }
 }
 
 impl From<String> for ConfigPath {
     fn from(path: String) -> Self {
-        Self(path.into())
+        Self::construct(path.into())
     }
 }
 

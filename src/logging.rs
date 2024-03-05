@@ -9,7 +9,7 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 use clap::ArgAction;
 use log::LevelFilter;
 use log::error;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use crate::config::{ConfigFile, ConfigPath};
 use crate::error::{ExitError, Failed};
 
@@ -31,8 +31,8 @@ impl Logger {
     ///
     /// Initializes the logging system so it can be used before having
     /// read the configuration. The function sets a maximum log level of
-    /// `warn`, leading only printing important information, and directs all
-    /// logging to stderr.
+    /// `warn`, leading to only printing important information, and directs
+    /// all log output to stderr.
     pub fn init_logging() -> Result<(), ExitError> {
         log::set_max_level(LevelFilter::Warn);
         if let Err(err) = log::set_logger(&GLOBAL_LOGGER) {
@@ -55,7 +55,10 @@ impl Logger {
                 TargetName::Stderr => Target::Stderr,
                 TargetName::File => {
                     match config.log_file.as_ref() {
-                        Some(file) => Target::File(file.clone().into()),
+                        Some(LogPath::Stderr) => Target::Stderr,
+                        Some(LogPath::Path(ref file)) => {
+                            Target::File(file.clone().into())
+                        }
                         None => {
                             error!("Missing 'log-file' option in config.");
                             return Err(Failed)
@@ -110,7 +113,7 @@ pub struct Config {
     syslog_facility: unix::FacilityArg,
 
     #[serde(rename = "log-file")]
-    log_file: Option<ConfigPath>,
+    log_file: Option<LogPath>,
 }
 
 impl Config {
@@ -127,7 +130,7 @@ impl Config {
             syslog_facility: file.take_from_str::<unix::FacilityArg>(
                 "syslog-facility"
             )?.unwrap_or_default(),
-            log_file: file.take_path("log-file")?,
+            log_file: file.take_string("log-file")?.map(Into::into),
         })
     }
 
@@ -176,7 +179,7 @@ impl Config {
         }
         if let Some(path) = self.log_file.as_ref() {
             config.insert_string(
-                "log-file", path.display()
+                "log-file", path
             );
         }
     }
@@ -287,6 +290,64 @@ impl FromStr for LevelName {
 }
 
 
+//------------ LogPath -------------------------------------------------------
+
+/// A path that is either "-" for stderr or an actual path.
+#[derive(Clone, Debug)]
+pub enum LogPath {
+    /// Standard error designated as a "-"
+    Stderr,
+
+    /// An actual path.
+    Path(ConfigPath),
+}
+
+impl From<String> for LogPath {
+    fn from(src: String) -> Self {
+        if src == "-" {
+            Self::Stderr
+        }
+        else {
+            Self::Path(src.into())
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for LogPath {
+    fn deserialize<D: Deserializer<'de>>(
+        deserializer: D
+    ) -> Result<Self, D::Error> {
+        let path = String::deserialize(deserializer)?;
+        if path == "-" {
+            Ok(Self::Stderr)
+        }
+        else {
+            Ok(Self::Path(path.into()))
+        }
+    }
+}
+
+impl Serialize for LogPath {
+    fn serialize<S: Serializer>(
+        &self, serializer: S
+    ) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Stderr => "-".serialize(serializer),
+            Self::Path(ref path) => path.serialize(serializer),
+        }
+    }
+}
+
+impl fmt::Display for LogPath {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Stderr => f.write_str("-"),
+            Self::Path(ref path) => write!(f, "{}", path.display()),
+        }
+    }
+}
+
+
 //------------ Args ----------------------------------------------------------
 
 #[derive(Clone, Debug, clap::Args)]
@@ -311,7 +372,7 @@ pub struct Args {
 
     /// Log to this file
     #[arg(long, value_name = "PATH", conflicts_with = "stderr")]
-    logfile: Option<ConfigPath>,
+    logfile: Option<LogPath>,
 
     /// Facility to use for syslog logging
     #[cfg(unix)]
