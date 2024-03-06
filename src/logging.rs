@@ -102,17 +102,17 @@ impl Logger {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Config {
-    #[serde(rename = "log-level", default)]
+    #[serde(rename = "log-level", alias = "log_level", default)]
     log_level: LevelName,
 
-    #[serde(rename = "log", default)]
+    #[serde(rename = "log", alias = "log_target", default)]
     log_target: TargetName,
 
     #[cfg(unix)]
-    #[serde(rename = "syslog-facility", default)]
+    #[serde(rename = "syslog-facility", alias = "log_facility", default)]
     syslog_facility: unix::FacilityArg,
 
-    #[serde(rename = "log-file")]
+    #[serde(rename = "log-file", alias = "log_file")]
     log_file: Option<LogPath>,
 }
 
@@ -189,7 +189,7 @@ impl Config {
 //------------ TargetName ----------------------------------------------------
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
-#[serde(try_from = "&str", into = "&'static str")]
+#[serde(try_from = "String", into = "&'static str")]
 enum TargetName {
     #[default]
     Default,
@@ -218,10 +218,18 @@ impl From<TargetName> for &'static str {
     }
 }
 
-impl<'a> TryFrom<&'a str> for TargetName {
+impl TryFrom<String> for TargetName {
     type Error = &'static str;
 
-    fn try_from(s: &'a str) -> Result<Self, Self::Error> {
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        Self::from_str(&s)
+    }
+}
+
+impl FromStr for TargetName {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "default" => Ok(TargetName::Default),
             #[cfg(unix)]
@@ -233,19 +241,11 @@ impl<'a> TryFrom<&'a str> for TargetName {
     }
 }
 
-impl FromStr for TargetName {
-    type Err = &'static str;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::try_from(s)
-    }
-}
-
 
 //------------ LevelName -----------------------------------------------------
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-#[serde(try_from = "&str", into = "&'static str")]
+#[serde(try_from = "String", into = "&'static str")]
 struct LevelName(LevelFilter);
 
 impl Default for LevelName {
@@ -273,11 +273,11 @@ impl From<LevelName> for &'static str {
     }
 }
 
-impl<'a> TryFrom<&'a str> for LevelName {
+impl TryFrom<String> for LevelName {
     type Error = &'static str;
 
-    fn try_from(s: &'a str) -> Result<Self, Self::Error> {
-        LevelFilter::from_str(s).map(Self).map_err(|_| "invalid log level")
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        Self::from_str(&s)
     }
 }
 
@@ -285,7 +285,7 @@ impl FromStr for LevelName {
     type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::try_from(s)
+        LevelFilter::from_str(s).map(Self).map_err(|_| "invalid log level")
     }
 }
 
@@ -795,7 +795,7 @@ mod unix {
 
     /// Helper type to use the facility with a clap parser.
     #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-    #[serde(try_from = "&str", into = "&'static str")]
+    #[serde(try_from = "String", into = "&'static str")]
     pub struct FacilityArg(syslog::Facility);
 
     impl FacilityArg {
@@ -855,13 +855,11 @@ mod unix {
         }
     }
 
-    impl<'a> TryFrom<&'a str> for FacilityArg {
+    impl TryFrom<String> for FacilityArg {
         type Error = &'static str;
 
-        fn try_from(s: &'a str) -> Result<Self, Self::Error> {
-            syslog::Facility::from_str(s).map(Self).map_err(|_| {
-                "invalid syslog facility"
-            })
+        fn try_from(s: String) -> Result<Self, Self::Error> {
+            Self::from_str(&s)
         }
     }
 
@@ -869,7 +867,9 @@ mod unix {
         type Err = &'static str;
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
-            Self::try_from(s)
+            syslog::Facility::from_str(s).map(Self).map_err(|_| {
+                "invalid syslog facility"
+            })
         }
     }
 
