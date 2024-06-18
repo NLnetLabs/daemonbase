@@ -8,6 +8,11 @@ New
 
 Bug fixes
 
+* Don’t overwrite the log level when no command line options for it are
+  given. ([b2a2f58])
+
+[b2a2f58]: https://github.com/NLnetLabs/daemonbase/commit/b2a2f58c53116df30fa6464e3c224fabb1f2dc3b
+
 Other changes
 
 
