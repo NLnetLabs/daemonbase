@@ -1,10 +1,8 @@
 # Change Log
 
-## Unreleased next version
+## 0.1.2
 
-Breaking changes
-
-New
+Released 2024-06-18.
 
 Bug fixes
 
@@ -12,8 +10,6 @@ Bug fixes
   given. ([b2a2f58])
 
 [b2a2f58]: https://github.com/NLnetLabs/daemonbase/commit/b2a2f58c53116df30fa6464e3c224fabb1f2dc3b
-
-Other changes
 
 
 ## 0.1.1
