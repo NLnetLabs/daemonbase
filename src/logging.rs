@@ -399,7 +399,7 @@ impl Args {
             Some(LevelFilter::Error)
         }
         else {
-            Some(LevelFilter::Warn)
+            None
         }
     }
 }
