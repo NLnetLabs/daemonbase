@@ -84,7 +84,7 @@ mod unix {
         ///
         /// Because access to the standard streams may get lost during the
         /// method, it uses the logging facilities for any diagnostic output.
-        /// You should therefore have set up your logging system prioir to
+        /// You should therefore have set up your logging system prior to
         /// calling this method.
         pub fn setup_daemon(
             &mut self, background: bool
