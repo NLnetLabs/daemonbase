@@ -130,7 +130,7 @@ mod unix {
         /// Drops privileges.
         ///
         /// If requested via the config, this method will drop all potentially
-        /// elevated privileges. This may include loosing root or system
+        /// elevated privileges. This may include losing root or system
         /// administrator permissions and change the file system root.
         pub fn drop_privileges(&mut self) -> Result<(), Failed> {
             if let Some(path) = self.config.chroot.as_ref() {
