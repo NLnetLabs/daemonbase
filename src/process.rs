@@ -15,18 +15,19 @@ pub use self::noop::{Args, Config, Process};
 mod unix {
     use std::io;
     use std::env::set_current_dir;
+    use std::fs::{File, OpenOptions};
+    use std::io::Write;
     use std::os::fd::{AsFd, AsRawFd};
-    use std::os::unix::io::RawFd;
+    use std::os::unix::fs::OpenOptionsExt;
     use std::path::{Path, PathBuf, StripPrefixError};
     use std::str::FromStr;
     use log::error;
-    use nix::fcntl::{flock, open, FlockArg, OFlag};
+    use nix::fcntl::{Flock, FlockArg, OFlag, open};
     use nix::sys::stat::Mode;
     use nix::sys::stat::umask;
     use nix::unistd::{Gid, Group, Uid, User};
     use nix::unistd::{
-        close, chown, chroot, dup2, fork, getpid, setgid, setsid, setuid,
-        write,
+        close, chroot, dup2, fork, getpid, setgid, setsid, setuid,
     };
     use serde::{Deserialize, Serialize};
     use crate::config::{ConfigFile, ConfigPath};
@@ -39,8 +40,8 @@ mod unix {
         /// All the configuration.
         config: Config,
 
-        /// The file descriptor of the pid file if requested.
-        pid_file: Option<RawFd>,
+        /// The pid file if requested.
+        pid_file: Option<Flock<File>>,
     }
 
     impl Process {
@@ -97,7 +98,7 @@ mod unix {
 
                 // Create a new session.
                 if let Err(err) = setsid() {
-                    error!("Fatal: failed to crates new session: {}", err);
+                    error!("Fatal: failed to crates new session: {err}");
                     return Err(Failed)
                 }
 
@@ -169,17 +170,18 @@ mod unix {
 
         /// Creates the pid file if requested.
         fn create_pid_file(&mut self) -> Result<(), Failed> {
-            let path = match self.config.working_dir.as_ref() {
+            let path = match self.config.pid_file.as_ref() {
                 Some(path) => path,
                 None => return Ok(())
             };
 
-            let fd = match open(
-                path.as_path(),
-                OFlag::O_WRONLY | OFlag::O_CREAT | OFlag::O_TRUNC,
-                Mode::from_bits_truncate(0o666)
-            ) {
-                Ok(fd) => fd,
+            let file = OpenOptions::new()
+                .read(false).write(true)
+                .create(true).truncate(true)
+                .mode(0o666)
+                .open(path);
+            let file = match file {
+                Ok(file) => file,
                 Err(err) => {
                     error!("Fatal: failed to create PID file {}: {}",
                         path.display(), err
@@ -187,49 +189,30 @@ mod unix {
                     return Err(Failed)
                 }
             };
-
-            if self.config.user.is_some() || self.config.group.is_some() {
-                if let Err(err) = chown(
-                    path.as_path(),
-                    self.config.user.as_ref().map(|user| user.uid),
-                    self.config.group.as_ref().map(|group| group.gid),
-                ) {
-                    error!(
-                        "Fatal: failed to change owner of pid file: {}", err
+            let file = match Flock::lock(
+                file, FlockArg::LockExclusiveNonblock
+            ) {
+                Ok(file) => file,
+                Err((_, err)) => {
+                    error!("Fatal: cannot lock PID file {}: {}",
+                        path.display(), err
                     );
                     return Err(Failed)
                 }
-            }
-
-            if let Err(err) = flock(fd, FlockArg::LockExclusiveNonblock) {
-                error!("Fatal: cannot lock PID file {}: {}",
-                    path.display(), err
-                );
-                return Err(Failed)
-            }
-            self.pid_file = Some(fd);
+            };
+            self.pid_file = Some(file);
             Ok(())
         }
 
         /// Updates the pid in the pid file after forking.
-        fn write_pid_file(&self) -> Result<(), Failed> {
-            if let Some(pid_file) = self.pid_file {
+        fn write_pid_file(&mut self) -> Result<(), Failed> {
+            if let Some(pid_file) = self.pid_file.as_mut() {
                 let pid = format!("{}", getpid());
-                match write(pid_file, pid.as_bytes()) {
-                    Ok(len) if len == pid.len() => {}
-                    Ok(_) => {
-                        error!(
-                            "Fatal: failed to write PID to PID file: \
-                             short write"
-                        );
-                        return Err(Failed)
-                    }
-                    Err(err) => {
-                        error!(
-                            "Fatal: failed to write PID to PID file: {}", err
-                        );
-                        return Err(Failed)
-                    }
+                if let Err(err) = pid_file.write_all(pid.as_bytes()) {
+                    error!(
+                        "Fatal: failed to write PID to PID file: {err}"
+                    );
+                    return Err(Failed)
                 }
             }
             Ok(())
@@ -245,7 +228,7 @@ mod unix {
                     Ok(())
                 }
                 Err(err) => {
-                    error!("Fatal: failed to detach: {}", err);
+                    error!("Fatal: failed to detach: {err}");
                     Err(Failed)
                 }
             }
@@ -279,33 +262,33 @@ mod unix {
             ) {
                 Ok(fd) => fd,
                 Err(err) => {
-                    error!("Fatal: failed to open /dev/null: {}", err);
+                    error!("Fatal: failed to open /dev/null: {err}");
                     return Err(Failed)
                 }
             };
 
             if let Err(err) = dup2(dev_null, io::stdin().as_fd().as_raw_fd()) {
                 error!(
-                    "Fatal: failed to redirect stdio to /dev/null: {}", err
+                    "Fatal: failed to redirect stdio to /dev/null: {err}"
                 );
                 return Err(Failed)
             }
             if let Err(err) = dup2(dev_null, io::stdout().as_fd().as_raw_fd()) {
                 error!(
-                    "Fatal: failed to redirect stdout to /dev/null: {}", err
+                    "Fatal: failed to redirect stdout to /dev/null: {err}"
                 );
                 return Err(Failed)
             }
             if let Err(err) = dup2(dev_null, io::stderr().as_fd().as_raw_fd()) {
                 error!(
-                    "Fatal: failed to redirect stderr to /dev/null: {}", err
+                    "Fatal: failed to redirect stderr to /dev/null: {err}"
                 );
                 return Err(Failed)
             }
 
             if let Err(err) = close(dev_null) {
                 error!(
-                    "Fatal: failed to close /dev/null: {}", err
+                    "Fatal: failed to close /dev/null: {err}"
                 );
                 return Err(Failed)
             }
@@ -439,10 +422,10 @@ mod unix {
                     Ok(UserId { uid: user.uid, name })
                 }
                 Ok(None) => {
-                    Err(format!("unknown user '{}'", name))
+                    Err(format!("unknown user '{name}'"))
                 }
                 Err(err) => {
-                    Err(format!("failed to resolve user '{}': {}", name, err))
+                    Err(format!("failed to resolve user '{name}': {err}"))
                 }
             }
         }
@@ -487,10 +470,10 @@ mod unix {
                     Ok(GroupId { gid: group.gid, name })
                 }
                 Ok(None) => {
-                    Err(format!("unknown user '{}'", name))
+                    Err(format!("unknown user '{name}'"))
                 }
                 Err(err) => {
-                    Err(format!("failed to resolve user '{}': {}", name, err))
+                    Err(format!("failed to resolve user '{name}': {err}"))
                 }
             }
         }
