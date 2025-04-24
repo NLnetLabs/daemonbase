@@ -8,7 +8,14 @@ New
 
 Bug fixes
 
+* The `working-dir` option was accidentally used as the path for the PID
+  file. Now the `pid-file` option is used as intended. ([#7])
+
 Other changes
+
+* The minimum supported Rust version is now 1.81. ([#7])
+
+[7]: https://github.com/NLnetLabs/daemonbase/pull/7
 
 
 ## 0.1.2
