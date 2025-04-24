@@ -2,7 +2,7 @@
 name = "daemonbase"
 version = "0.1.2"
 edition = "2021"
-rust-version = "1.70"
+rust-version = "1.81"
 authors = ["NLnet Labs <rust-team@nlnetlabs.nl>"]
 description = "A library for providing the foundation for daemon processes."
 documentation = "https://docs.rs/daemonbase/"
@@ -14,13 +14,13 @@ license = "BSD-3-Clause"
 
 [dependencies]
 chrono          = "0.4.23"
-clap            = { version = "~4.4", features = [ "derive" ] }
+clap            = { version = "4", features = [ "derive" ] }
 log             = "0.4.8"
 serde           = { version = "1.0.95", features = [ "derive" ] }
 toml_edit       = "0.22"
 
 
 [target.'cfg(unix)'.dependencies]
-nix             = { version = "0.27.1", features = [ "fs", "process", "user" ] }
-syslog          = "6"
+nix             = { version = "0.29", features = [ "fs", "process", "user" ] }
+syslog          = "7"
 

@@ -70,8 +70,7 @@ impl ConfigFile {
                 Ok(dir) => dir,
                 Err(err) => {
                     error!(
-                        "Fatal: Can't determine current directory: {}.",
-                        err
+                        "Fatal: Can't determine current directory: {err}.",
                     );
                     return Err(Failed);
                 }
@@ -583,7 +582,7 @@ impl ConfigFile {
                 else {
                     first = false
                 }
-                print!("{}", key);
+                print!("{key}");
             }
             error!(".");
             Err(Failed)
@@ -775,7 +774,7 @@ impl clap::builder::TypedValueParser for ConfigPathParser {
                 res.insert(
                     clap::error::ContextKind::Custom,
                     clap::error::ContextValue::String(
-                        format!("Failed to get current directory: {}", err)
+                        format!("Failed to get current directory: {err}")
                     )
                 );
                 return Err(res);

@@ -36,7 +36,7 @@ impl Logger {
     pub fn init_logging() -> Result<(), ExitError> {
         log::set_max_level(LevelFilter::Warn);
         if let Err(err) = log::set_logger(&GLOBAL_LOGGER) {
-            eprintln!("Failed to initialize logger: {}.\nAborting.", err);
+            eprintln!("Failed to initialize logger: {err}.\nAborting.");
             return Err(ExitError::default())
         }
         Ok(())
@@ -612,7 +612,7 @@ impl Dispatch {
         match self.target().deref() {
             #[cfg(unix)]
             LogBackend::Syslog(_) => {
-                eprintln!("Logging to syslog failed: {}. Exiting.", err);
+                eprintln!("Logging to syslog failed: {err}. Exiting.");
             }
             LogBackend::File { ref path, .. } => {
                 eprintln!(
@@ -741,7 +741,7 @@ mod unix {
                 Ok(logger) => return Ok(Self(logger)),
                 Err(err) => {
                     if !use_inet {
-                        error!("Cannot connect to syslog: {}", err);
+                        error!("Cannot connect to syslog: {err}");
                         return Err(Failed)
                     }
                 }
@@ -755,7 +755,7 @@ mod unix {
             match logger {
                 Ok(logger) => Ok(Self(logger)),
                 Err(err) => {
-                    error!("Cannot connect to syslog: {}", err);
+                    error!("Cannot connect to syslog: {err}");
                     Err(Failed)
                 }
             }
@@ -773,14 +773,9 @@ mod unix {
                     self.0.debug(record.args())
                 }
             }.map_err(|err| {
-                match err.0 {
-                    syslog::ErrorKind::Io(err) => err,
-                    syslog::ErrorKind::Msg(err) => {
-                        io::Error::new(io::ErrorKind::Other, err)
-                    }
-                    err => {
-                        io::Error::new(io::ErrorKind::Other, format!("{}", err))
-                    }
+                match err {
+                    syslog::Error::Io(err) => err,
+                    err => io::Error::other(err),
                 }
             })
         }
@@ -811,14 +806,18 @@ mod unix {
                 LOG_USER => "user",
                 LOG_MAIL => "mail",
                 LOG_DAEMON => "daemon",
+                LOG_ALERT => "alert",
+                LOG_AUDIT => "audit",
                 LOG_AUTH => "auth",
                 LOG_SYSLOG => "syslog",
                 LOG_LPR => "lpr",
                 LOG_NEWS => "news",
+                LOG_NTP => "ntp",
                 LOG_UUCP => "uucp",
                 LOG_CRON => "cron",
                 LOG_AUTHPRIV => "authpriv",
                 LOG_FTP => "ftp",
+                LOG_CLOCK_DAEMON => "clock",
                 LOG_LOCAL0 => "local0",
                 LOG_LOCAL1 => "local1",
                 LOG_LOCAL2 => "local2",
