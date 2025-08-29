@@ -27,7 +27,7 @@ mod unix {
     use nix::sys::stat::umask;
     use nix::unistd::{Gid, Group, Uid, User};
     use nix::unistd::{
-        close, chroot, dup2, fork, getpid, setgid, setsid, setuid,
+        close, chroot, dup2, fork, getpid, setgid, setsid, setuid, setgroups,
     };
     use serde::{Deserialize, Serialize};
     use crate::config::{ConfigFile, ConfigPath};
@@ -140,6 +140,22 @@ mod unix {
                         path.display(), err
                     );
                     return Err(Failed)
+                }
+            }
+
+            // Fix for rpmlint error:
+            //
+            // missing-call-to-setgroups-before-setuid="""
+            // This executable is calling setuid and setgid without setgroups or initgroups.
+            // This means it didn't relinquish all groups, and this would be a potential
+            // security issue.
+            // """
+            //
+            // See: https://github.com/rpm-software-management/rpmlint/blob/fb00ae4bea5905491a8b1ca0e14e38f97cebe8ea/rpmlint/descriptions/BinariesCheck.toml#L120
+            if let Some(group) = self.config.group.as_ref() {
+                if let Err(err) = setgroups(&[group.gid]) {
+                    error!("Fatal: failed to set groups to '[{}]': {}", group.name, err);
+                    return Err(Failed);
                 }
             }
 
