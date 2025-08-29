@@ -559,7 +559,7 @@ impl Dispatch {
     }
 
     /// Returns a mutex lock for the target
-    fn target(&self) -> MutexGuard<LogBackend> {
+    fn target(&self) -> MutexGuard<'_, LogBackend> {
         self.target.lock().expect("poisoned mutex")
     }
 
