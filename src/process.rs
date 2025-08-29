@@ -55,6 +55,7 @@ mod unix {
         {
             // Attempt to import setgroups() via wildcard, which may or
             // may not exist, if not then the fallback will be used.
+            #[allow(unused_imports)]
             use nix::unistd::*;
             setgroups(groups)
         }
