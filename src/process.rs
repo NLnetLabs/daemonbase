@@ -15,6 +15,7 @@ pub use self::noop::{Args, Config, Process};
 mod unix {
     use std::io;
     use std::env::set_current_dir;
+    use std::ffi::{CStr, CString};
     use std::fs::{File, OpenOptions};
     use std::io::Write;
     use std::os::fd::{AsFd, AsRawFd};
@@ -27,7 +28,7 @@ mod unix {
     use nix::sys::stat::umask;
     use nix::unistd::{Gid, Group, Uid, User};
     use nix::unistd::{
-        close, chroot, dup2, fork, getpid, setgid, setsid, setuid,
+        close, chroot, dup2, fork, getpid, setsid,
     };
     use serde::{Deserialize, Serialize};
     use crate::config::{ConfigFile, ConfigPath};
@@ -143,27 +144,127 @@ mod unix {
                 }
             }
 
-            if let Some(user) = self.config.user.as_ref() {
-                if let Err(err) = setuid(user.uid) {
-                    error!(
-                        "Fatal: failed to set user '{}': {}",
-                        user.name, err
-                    );
-                    return Err(Failed)
-                }
-            }
-
-            if let Some(group) = self.config.group.as_ref() {
-                if let Err(err) = setgid(group.gid) {
-                    error!(
-                        "Fatal: failed to set group '{}': {}",
-                        group.name, err
-                    );
-                    return Err(Failed)
-                }
-            }
+            self.set_user_and_group()?;
 
             self.write_pid_file()?;
+
+            Ok(())
+        }
+
+        /// Changes the user and group IDs.
+        fn set_user_and_group(&self) -> Result<(), Failed> {
+            // Unfortunately, this isn’t quite as portable as we want it to
+            // be as most of the function we use are not available on some
+            // platforms. Instead of copying the cfg attributes from the nix
+            // crate, we define fallback functions and overwrite their symbol
+            // if possible using a glob import.
+            //
+            // For setting uid and gid, we need to cascase: Use `setresuid`
+            // if available, otherwise use `setreuid` if available, otherwise
+            // use `setuid`; analogous for gid. We achieve this by having
+            // the fallback call the next step which may itself be a fallback.
+
+            /// Dummy fallback function for `nix::unistd::initgroups`.
+            #[allow(dead_code)]
+            fn initgroups(
+                _user: &CStr, _group: Gid
+            ) -> Result<(), nix::errno::Errno> {
+                Ok(())
+            }
+
+            /// Fallback function for `nix::unistd::setresgid`.
+            #[allow(dead_code)]
+            fn setresgid(
+                rgid: Gid, egid: Gid, _sgid: Gid
+            ) -> Result<(), nix::errno::Errno> {
+                use nix::libc::{c_int, gid_t};
+
+                #[allow(dead_code)]
+                unsafe fn setregid(rgid: gid_t, _egid: gid_t) -> c_int {
+                    unsafe { nix::libc::setgid(rgid) }
+                }
+
+                {
+                    use nix::libc::*;
+
+                    if unsafe { setregid(rgid.as_raw(), egid.as_raw()) } != 0 {
+                        return Err(nix::errno::Errno::last());
+                    }
+                }
+
+                Ok(())
+            }
+
+            /// Fallback function for `nix::unistd::setresuid`.
+            #[allow(dead_code)]
+            fn setresuid(
+                ruid: Uid, euid: Uid, _suid: Uid
+            ) -> Result<(), nix::errno::Errno> {
+                use nix::libc::{c_int, uid_t};
+
+                #[allow(dead_code)]
+                unsafe fn setreuid(ruid: uid_t, _euid: uid_t) -> c_int {
+                    unsafe { nix::libc::setuid(ruid) }
+                }
+
+                {
+                    use nix::libc::*;
+
+                    if unsafe { setreuid(ruid.as_raw(), euid.as_raw()) } != 0 {
+                        return Err(nix::errno::Errno::last());
+                    }
+                }
+
+                Ok(())
+            }
+
+            let Some(user) = self.config.user.as_ref() else {
+                return Ok(())
+            };
+
+            // If we don’t have an explicit group, we use the user’s group.
+            let gid = self.config.group.as_ref().map(|g| {
+                g.gid
+            }).unwrap_or_else(|| {
+                user.gid
+            });
+
+            // Let the system load the supplemental groups for the user.
+            {
+                use nix::unistd::*;
+
+                initgroups(&user.c_name, gid).map_err(|err| {
+                    error!(
+                        "failed to initgroups {}: {}",
+                        user.name, err
+                    );
+                    Failed
+                })?;
+            }
+
+            // Set the group ID.
+            {
+                use nix::unistd::*;
+
+                setresgid(gid, gid, gid).map_err(|err| {
+                    error!(
+                        "failed to set group ID: {err}"
+                    );
+                    Failed
+                })?;
+            }
+
+            // Set the user ID.
+            {
+                use nix::unistd::*;
+
+                setresuid(user.uid, user.uid, user.uid).map_err(|err| {
+                    error!(
+                        "failed to set user ID: {err}"
+                    );
+                    Failed
+                })?;
+            }
 
             Ok(())
         }
@@ -404,22 +505,39 @@ mod unix {
     #[derive(Clone, Debug, Deserialize, Serialize)]
     #[serde(try_from = "String", into = "String", expecting = "a user name")]
     struct UserId {
+        /// The user name.
+        ///
+        /// This is used for error reporting.
+        name: String,
+
+        /// The user name as a C string.
+        ///
+        /// This is used internally. We keep both the string and C string
+        /// versions because conversion can cause errors and we want to catch
+        /// those early.
+        c_name: CString,
+
         /// The numerical user ID.
         uid: Uid,
 
-        /// The user name.
-        ///
-        /// We keep this information so we can produce the actual config.
-        name: String,
+        /// The numerical group ID of the user.
+        gid: Gid,
+
     }
 
     impl TryFrom<String> for UserId {
         type Error = String;
 
         fn try_from(name: String) -> Result<Self, Self::Error> {
+            let Ok(c_name) = CString::new(name.clone()) else {
+                return Err(format!("invalid user name '{name}'"))
+            };
             match User::from_name(&name) {
                 Ok(Some(user)) => {
-                    Ok(UserId { uid: user.uid, name })
+                    Ok(UserId {
+                        name, c_name,
+                        gid: user.gid, uid: user.uid
+                    })
                 }
                 Ok(None) => {
                     Err(format!("unknown user '{name}'"))
@@ -452,13 +570,11 @@ mod unix {
     #[derive(Clone, Debug, Deserialize, Serialize)]
     #[serde(try_from = "String", into = "String", expecting = "a user name")]
     struct GroupId {
-        /// The numerical user ID.
-        gid: Gid,
-
-        /// The user name.
-        ///
-        /// We keep this information so we can produce the actual config.
+        /// The group name.
         name: String,
+
+        /// The numerical group ID.
+        gid: Gid,
     }
 
     impl TryFrom<String> for GroupId {
@@ -470,10 +586,10 @@ mod unix {
                     Ok(GroupId { gid: group.gid, name })
                 }
                 Ok(None) => {
-                    Err(format!("unknown user '{name}'"))
+                    Err(format!("unknown group '{name}'"))
                 }
                 Err(err) => {
-                    Err(format!("failed to resolve user '{name}': {err}"))
+                    Err(format!("failed to resolve group '{name}': {err}"))
                 }
             }
         }
