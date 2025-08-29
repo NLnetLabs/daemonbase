@@ -185,6 +185,7 @@ mod unix {
                 }
 
                 {
+                    #[allow(unused_imports)]
                     use nix::libc::*;
 
                     if unsafe { setregid(rgid.as_raw(), egid.as_raw()) } != 0 {
@@ -208,6 +209,7 @@ mod unix {
                 }
 
                 {
+                    #[allow(unused_imports)]
                     use nix::libc::*;
 
                     if unsafe { setreuid(ruid.as_raw(), euid.as_raw()) } != 0 {
@@ -231,6 +233,7 @@ mod unix {
 
             // Let the system load the supplemental groups for the user.
             {
+                #[allow(unused_imports)]
                 use nix::unistd::*;
 
                 initgroups(&user.c_name, gid).map_err(|err| {
@@ -244,6 +247,7 @@ mod unix {
 
             // Set the group ID.
             {
+                #[allow(unused_imports)]
                 use nix::unistd::*;
 
                 setresgid(gid, gid, gid).map_err(|err| {
@@ -256,6 +260,7 @@ mod unix {
 
             // Set the user ID.
             {
+                #[allow(unused_imports)]
                 use nix::unistd::*;
 
                 setresuid(user.uid, user.uid, user.uid).map_err(|err| {
