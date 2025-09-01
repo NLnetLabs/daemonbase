@@ -159,7 +159,7 @@ mod unix {
             // crate, we define fallback functions and overwrite their symbol
             // if possible using a glob import.
             //
-            // For setting uid and gid, we need to cascase: Use `setresuid`
+            // For setting uid and gid, we need to cascade: Use `setresuid`
             // if available, otherwise use `setreuid` if available, otherwise
             // use `setuid`; analogous for gid. We achieve this by having
             // the fallback call the next step which may itself be a fallback.
@@ -238,8 +238,7 @@ mod unix {
 
                 initgroups(&user.c_name, gid).map_err(|err| {
                     error!(
-                        "failed to initgroups {}: {}",
-                        user.name, err
+                        "failed to initialize the group access list: {err}",
                     );
                     Failed
                 })?;
