@@ -517,8 +517,8 @@ mod unix {
         /// The user name as a C string.
         ///
         /// This is used internally. We keep both the string and C string
-        /// versions because conversion can cause errors and we want to catch
-        /// those early.
+        /// versions because conversion can cause errors, so it best happens
+        /// already when creating an object.
         c_name: CString,
 
         /// The numerical user ID.
