@@ -6,9 +6,15 @@ Breaking changes
 
 New
 
+* Reworked setting of user and group. If not provided explicitly, the
+  group will now be set to the user’s group. The list of supplemental
+  groups will be initialized from the user’s group list. ([#11])
+
 Bug fixes
 
 Other changes
+
+[11]: https://github.com/NLnetLabs/daemonbase/pull/11
 
 
 ## 0.1.3
