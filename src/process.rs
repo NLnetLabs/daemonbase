@@ -648,7 +648,7 @@ mod unix {
 mod noop {
     use std::path::{PathBuf, StripPrefixError};
     use serde::{Deserialize, Serialize};
-    use crate::config::ConfigFile;
+    use crate::config::{ConfigFile, ConfigPath};
     use crate::error::Failed;
 
 
