@@ -732,23 +732,23 @@ mod noop {
             let _ = args;
         }
 
-        pub fn with_pid_file(mut self, _: ConfigPath) -> Self {
+        pub fn with_pid_file(self, _: ConfigPath) -> Self {
             self
         }
 
-        pub fn with_working_dir(mut self, _: ConfigPath) -> Self {
+        pub fn with_working_dir(self, _: ConfigPath) -> Self {
             self
         }
 
-        pub fn with_chroot(mut self, _: ConfigPath) -> Self {
+        pub fn with_chroot(self, _: ConfigPath) -> Self {
             self
         }
 
-        pub fn with_user(mut self, _: &str) -> Result<Self, String> {
+        pub fn with_user(self, _: &str) -> Result<Self, String> {
             Ok(self)
         }
 
-        pub fn with_group(mut self, _: &str) -> Result<Self, String> {
+        pub fn with_group(self, _: &str) -> Result<Self, String> {
             Ok(self)
         }
     }
