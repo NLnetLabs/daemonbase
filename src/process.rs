@@ -467,6 +467,31 @@ mod unix {
                 self.group = Some(group)
             }
         }
+
+        pub fn with_pid_file(mut self, v: ConfigPath) -> Self {
+            self.pid_file = Some(v);
+            self
+        }
+
+        pub fn with_working_dir(mut self, v: ConfigPath) -> Self {
+            self.working_dir = Some(v);
+            self
+        }
+
+        pub fn with_chroot(mut self, v: ConfigPath) -> Self {
+            self.chroot = Some(v);
+            self
+        }
+
+        pub fn with_user(mut self, v: &str) -> Result<Self, String> {
+            self.user = Some(UserId::from_str(v)?);
+            Ok(self)
+        }
+
+        pub fn with_group(mut self, v: &str) -> Result<Self, String> {
+            self.group = Some(GroupId::from_str(v)?);
+            Ok(self)
+        }
     }
 
 
@@ -623,7 +648,7 @@ mod unix {
 mod noop {
     use std::path::{PathBuf, StripPrefixError};
     use serde::{Deserialize, Serialize};
-    use crate::config::ConfigFile;
+    use crate::config::{ConfigFile, ConfigPath};
     use crate::error::Failed;
 
 
@@ -705,6 +730,26 @@ mod noop {
         /// Applies the arguments to the process.
         pub fn apply_args(&mut self, args: Args) {
             let _ = args;
+        }
+
+        pub fn with_pid_file(self, _: ConfigPath) -> Self {
+            self
+        }
+
+        pub fn with_working_dir(self, _: ConfigPath) -> Self {
+            self
+        }
+
+        pub fn with_chroot(self, _: ConfigPath) -> Self {
+            self
+        }
+
+        pub fn with_user(self, _: &str) -> Result<Self, String> {
+            Ok(self)
+        }
+
+        pub fn with_group(self, _: &str) -> Result<Self, String> {
+            Ok(self)
         }
     }
 
