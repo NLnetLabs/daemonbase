@@ -46,10 +46,7 @@ mod unix {
     impl Process {
         /// Creates the process from a config struct.
         pub fn from_config(config: Config) -> Self {
-            Self {
-                config,
-                pid_file: None,
-            }
+            Self { config, pid_file: None }
         }
 
         /// Adjusts a path for use after dropping privileges.
@@ -60,10 +57,15 @@ mod unix {
         ///
         /// The method returns an error if the path is outside of what’s
         /// accessible to the process after dropping privileges.
-        pub fn adjust_path(&self, path: PathBuf) -> Result<PathBuf, StripPrefixError> {
+        pub fn adjust_path(
+            &self, path: PathBuf
+        ) -> Result<PathBuf, StripPrefixError> {
             if let Some(chroot) = self.config.chroot.as_ref() {
-                Ok(Path::new("/").join(path.strip_prefix(chroot)?))
-            } else {
+                Ok(Path::new("/").join(
+                    path.strip_prefix(chroot)?
+                ))
+            }
+            else {
                 Ok(path)
             }
         }
@@ -84,7 +86,9 @@ mod unix {
         /// method, it uses the logging facilities for any diagnostic output.
         /// You should therefore have set up your logging system prior to
         /// calling this method.
-        pub fn setup_daemon(&mut self, background: bool) -> Result<(), Failed> {
+        pub fn setup_daemon(
+            &mut self, background: bool
+        ) -> Result<(), Failed> {
             self.create_pid_file()?;
 
             if background {
@@ -94,7 +98,7 @@ mod unix {
                 // Create a new session.
                 if let Err(err) = setsid() {
                     error!("Fatal: failed to crates new session: {err}");
-                    return Err(Failed);
+                    return Err(Failed)
                 }
 
                 // Fork again to stop being the session leader so we can’t
@@ -112,7 +116,8 @@ mod unix {
 
                 // Redirect the three standard streams to /dev/null.
                 self.redirect_stdio()?;
-            } else {
+            }
+            else {
                 self.change_working_dir(false)?;
             }
 
@@ -129,8 +134,10 @@ mod unix {
         pub fn drop_privileges(&mut self) -> Result<(), Failed> {
             if let Some(path) = self.config.chroot.as_ref() {
                 if let Err(err) = chroot(path.as_path()) {
-                    error!("Fatal: cannot chroot to '{}': {}'", path.display(), err);
-                    return Err(Failed);
+                    error!("Fatal: cannot chroot to '{}': {}'",
+                        path.display(), err
+                    );
+                    return Err(Failed)
                 }
             }
 
@@ -156,13 +163,17 @@ mod unix {
 
             /// Dummy fallback function for `nix::unistd::initgroups`.
             #[allow(dead_code)]
-            fn initgroups(_user: &CStr, _group: Gid) -> Result<(), nix::errno::Errno> {
+            fn initgroups(
+                _user: &CStr, _group: Gid
+            ) -> Result<(), nix::errno::Errno> {
                 Ok(())
             }
 
             /// Fallback function for `nix::unistd::setresgid`.
             #[allow(dead_code)]
-            fn setresgid(rgid: Gid, egid: Gid, _sgid: Gid) -> Result<(), nix::errno::Errno> {
+            fn setresgid(
+                rgid: Gid, egid: Gid, _sgid: Gid
+            ) -> Result<(), nix::errno::Errno> {
                 use nix::libc::{c_int, gid_t};
 
                 #[allow(dead_code)]
