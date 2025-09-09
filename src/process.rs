@@ -12,16 +12,6 @@ pub use self::noop::{Args, Config, EnvSockets, Process};
 ///
 #[cfg(unix)]
 mod unix {
-    use crate::config::{ConfigFile, ConfigPath};
-    use crate::error::Failed;
-    use log::error;
-    use nix::fcntl::{fcntl, open, FcntlArg, FdFlag, Flock, FlockArg, OFlag};
-    use nix::sys::socket::{getsockname, getsockopt, SockType, SockaddrStorage};
-    use nix::sys::stat::umask;
-    use nix::sys::stat::Mode;
-    use nix::unistd::{chroot, close, dup2, fork, getpid, setsid};
-    use nix::unistd::{Gid, Group, Uid, User};
-    use serde::{Deserialize, Serialize};
     use std::env::set_current_dir;
     use std::ffi::{CStr, CString};
     use std::fs::{File, OpenOptions};
@@ -32,6 +22,16 @@ mod unix {
     use std::os::unix::fs::OpenOptionsExt;
     use std::path::{Path, PathBuf, StripPrefixError};
     use std::str::FromStr;
+    use log::error;
+    use nix::fcntl::{fcntl, open, FcntlArg, FdFlag, Flock, FlockArg, OFlag};
+    use nix::sys::socket::{getsockname, getsockopt, SockType, SockaddrStorage};
+    use nix::sys::stat::umask;
+    use nix::sys::stat::Mode;
+    use nix::unistd::{chroot, close, dup2, fork, getpid, setsid};
+    use nix::unistd::{Gid, Group, Uid, User};
+    use serde::{Deserialize, Serialize};
+    use crate::config::{ConfigFile, ConfigPath};
+    use crate::error::Failed;
 
     //-------- Process -------------------------------------------------------
 
@@ -896,11 +896,11 @@ mod unix {
 ///
 #[cfg(not(unix))]
 mod noop {
-    use crate::config::{ConfigFile, ConfigPath};
-    use crate::error::Failed;
-    use serde::{Deserialize, Serialize};
     use std::net::{SocketAddr, TcpListener, UdpSocket};
     use std::path::{PathBuf, StripPrefixError};
+    use serde::{Deserialize, Serialize};
+    use crate::config::{ConfigFile, ConfigPath};
+    use crate::error::Failed;
 
     //-------- Process -------------------------------------------------------
 
