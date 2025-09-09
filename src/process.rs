@@ -812,9 +812,7 @@ mod unix {
                 sock_opt
             };
 
-            let Some(sock_addr) = to_socket_addr(sock_addr) else {
-                return None;
-            };
+            let sock_addr = to_socket_addr(sock_addr)?;
 
             let socket_type = match sock_opt {
                 SockType::Datagram => SocketType::Udp,
