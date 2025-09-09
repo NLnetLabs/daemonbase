@@ -995,7 +995,7 @@ mod noop {
         /// the specified address?
         ///
         /// Returns true if so, false otherwise.
-        pub fn has_udp(&self, addr: &SocketAddr) -> bool {
+        pub fn has_udp(&self, _addr: &SocketAddr) -> bool {
             false
         }
 
@@ -1003,7 +1003,7 @@ mod noop {
         /// the specified address?
         ///
         /// Returns true if so, false otherwise.
-        pub fn has_tcp(&self, addr: &SocketAddr) -> bool {
+        pub fn has_tcp(&self, _addr: &SocketAddr) -> bool {
             false
         }
 
@@ -1016,7 +1016,7 @@ mod noop {
         ///
         /// Subsequent attempts to remove the same UDP socket, or any other
         /// non-existing socket, will return None.
-        pub fn take_udp(&mut self, addr: &SocketAddr) -> Option<UdpSocket> {
+        pub fn take_udp(&mut self, _addr: &SocketAddr) -> Option<UdpSocket> {
             None
         }
 
@@ -1024,7 +1024,7 @@ mod noop {
             None
         }
 
-        pub fn take_tcp(&mut self, addr: &SocketAddr) -> Option<TcpListener> {
+        pub fn take_tcp(&mut self, _addr: &SocketAddr) -> Option<TcpListener> {
             None
         }
 
