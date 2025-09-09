@@ -17,9 +17,9 @@ mod unix {
     use std::ffi::{CStr, CString};
     use std::fs::{File, OpenOptions};
     use std::io::Write;
-    use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6, TcpListener, UdpSocket};
     use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, RawFd};
     use std::os::unix::fs::OpenOptionsExt;
+    use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6, TcpListener, UdpSocket};
     use std::path::{Path, PathBuf, StripPrefixError};
     use std::str::FromStr;
     use log::error;
