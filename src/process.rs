@@ -90,7 +90,6 @@ mod unix {
             &mut self, background: bool
         ) -> Result<(), Failed> {
             self.create_pid_file()?;
-
             if background {
                 // Fork to detach from terminal.
                 self.perform_fork()?;
@@ -399,6 +398,7 @@ mod unix {
         }
     }
 
+
     //-------- Config --------------------------------------------------------
 
     #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -522,6 +522,7 @@ mod unix {
         }
     }
 
+
     //-------- UserId --------------------------------------------------------
 
     /// A user ID in configuration.
@@ -545,6 +546,7 @@ mod unix {
 
         /// The numerical group ID of the user.
         gid: Gid,
+
     }
 
     impl TryFrom<String> for UserId {
@@ -558,7 +560,7 @@ mod unix {
                 Ok(Some(user)) => {
                     Ok(UserId {
                         name, c_name,
-                        gid: user.gid, uid: user.uid,
+                        gid: user.gid, uid: user.uid
                     })
                 }
                 Ok(None) => {
@@ -584,6 +586,7 @@ mod unix {
             user.name
         }
     }
+
 
     //-------- GroupId -------------------------------------------------------
 
@@ -937,6 +940,7 @@ mod noop {
     use crate::config::{ConfigFile, ConfigPath};
     use crate::error::Failed;
 
+
     //-------- Process -------------------------------------------------------
 
     pub struct Process;
@@ -990,6 +994,7 @@ mod noop {
             Ok(())
         }
     }
+
 
     //-------- Config --------------------------------------------------------
 
