@@ -747,6 +747,15 @@ mod unix {
     //--- Private methods
 
     impl EnvSockets {
+        /// Returns the socket with the specified type and addres, assuming it
+        /// was supplied to us via the environment.
+        ///
+        /// If found, removes the file descriptor from the collection, sets
+        /// the FD_CLOEXEC flag on the file descriptor and returns it as the
+        /// Rust type Some(UdpSocket).
+        ///
+        /// Subsequent attempts to remove the same TCP socket, or any other
+        /// non-existing socket, will return None.
         fn remove<T: FromRawFd>(&mut self, ty: SocketType, addr: &SocketAddr) -> Option<T> {
             self.fds
                 .iter()
@@ -754,6 +763,12 @@ mod unix {
                 .and_then(|idx| self.fds.remove(idx).finalize())
         }
 
+        /// Returns the first remaining socket of a given type from those
+        /// received via the environment.
+        ///
+        /// If found, removes the file descriptor from the collection, sets
+        /// the FD_CLOEXEC flag on the file descriptor and returns it as the
+        /// Rust type Some(UdpSocket).
         fn pop<T: FromRawFd>(&mut self, ty: SocketType) -> Option<T> {
             self.fds
                 .iter()
