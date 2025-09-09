@@ -865,7 +865,6 @@ mod unix {
 mod noop {
     use crate::config::{ConfigFile, ConfigPath};
     use crate::error::Failed;
-    use clap::builder::FalseyValueParser;
     use serde::{Deserialize, Serialize};
     use std::net::{SocketAddr, TcpListener, UdpSocket};
     use std::path::{PathBuf, StripPrefixError};
