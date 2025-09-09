@@ -127,7 +127,7 @@ mod unix {
             Ok(())
         }
 
-        
+
         /// Drops privileges.
         ///
         /// If requested via the config, this method will drop all potentially
