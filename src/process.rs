@@ -597,10 +597,7 @@ mod unix {
 
     //-------- EnvSockets ----------------------------------------------------
 
-    /// A store of information captured from the environment that relates to
-    /// O/S provided file descriptors aka sockets.
-    ///
-    /// Design goal: Only expose Clone'able types.
+    /// Accces to pre-bound sockets passed via environment variables.
     pub struct EnvSockets {
         /// An ordered collection ofsocket file descriptors along with their
         /// address and type,
