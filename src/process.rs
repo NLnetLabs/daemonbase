@@ -90,6 +90,7 @@ mod unix {
             &mut self, background: bool
         ) -> Result<(), Failed> {
             self.create_pid_file()?;
+            
             if background {
                 // Fork to detach from terminal.
                 self.perform_fork()?;
