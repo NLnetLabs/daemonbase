@@ -600,7 +600,7 @@ mod unix {
     /// Accces to pre-bound sockets passed via environment variables.
     pub struct EnvSockets {
         /// An ordered collection of socket file descriptors along with their
-        /// address and type,
+        /// address and type.
         ///
         /// Preserves the order the sockets were provided to us.
         fds: Vec<SocketInfo>,
