@@ -867,7 +867,7 @@ mod noop {
     use crate::error::Failed;
     use clap::builder::FalseyValueParser;
     use serde::{Deserialize, Serialize};
-    use std::net::SocketAddr;
+    use std::net::{SocketAddr, TcpListener, UdpSocket};
     use std::path::{PathBuf, StripPrefixError};
 
     //-------- Process -------------------------------------------------------
