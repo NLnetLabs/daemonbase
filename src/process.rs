@@ -235,7 +235,7 @@ mod unix {
 
                 initgroups(&user.c_name, gid).map_err(|err| {
                     error!(
-                        "failed to initialize the group access list: {err}"
+                        "failed to initialize the group access list: {err}",
                     );
                     Failed
                 })?;
@@ -552,17 +552,21 @@ mod unix {
 
         fn try_from(name: String) -> Result<Self, Self::Error> {
             let Ok(c_name) = CString::new(name.clone()) else {
-                return Err(format!("invalid user name '{name}'"));
+                return Err(format!("invalid user name '{name}'"))
             };
             match User::from_name(&name) {
-                Ok(Some(user)) => Ok(UserId {
-                    name,
-                    c_name,
-                    gid: user.gid,
-                    uid: user.uid,
-                }),
-                Ok(None) => Err(format!("unknown user '{name}'")),
-                Err(err) => Err(format!("failed to resolve user '{name}': {err}")),
+                Ok(Some(user)) => {
+                    Ok(UserId {
+                        name, c_name,
+                        gid: user.gid, uid: user.uid,
+                    })
+                }
+                Ok(None) => {
+                    Err(format!("unknown user '{name}'"))
+                }
+                Err(err) => {
+                    Err(format!("failed to resolve user '{name}': {err}"))
+                }
             }
         }
     }
@@ -599,12 +603,15 @@ mod unix {
 
         fn try_from(name: String) -> Result<Self, Self::Error> {
             match Group::from_name(&name) {
-                Ok(Some(group)) => Ok(GroupId {
-                    gid: group.gid,
-                    name,
-                }),
-                Ok(None) => Err(format!("unknown group '{name}'")),
-                Err(err) => Err(format!("failed to resolve group '{name}': {err}")),
+                Ok(Some(group)) => {
+                    Ok(GroupId { gid: group.gid, name })
+                }
+                Ok(None) => {
+                    Err(format!("unknown group '{name}'"))
+                }
+                Err(err) => {
+                    Err(format!("failed to resolve group '{name}': {err}"))
+                }
             }
         }
     }
@@ -949,7 +956,9 @@ mod noop {
         ///
         /// The method returns an error if the path is outside of what’s
         /// accessible to the process after dropping privileges.
-        pub fn adjust_path(&self, path: PathBuf) -> Result<PathBuf, StripPrefixError> {
+        pub fn adjust_path(
+            &self, path: PathBuf
+        ) -> Result<PathBuf, StripPrefixError> {
             Ok(path)
         }
 
@@ -965,7 +974,9 @@ mod noop {
         /// method, it uses the logging facilities for any diagnostic output.
         /// You should therefore have set up your logging system prioir to
         /// calling this method.
-        pub fn setup_daemon(&mut self, background: bool) -> Result<(), Failed> {
+        pub fn setup_daemon(
+            &mut self, background: bool
+        ) -> Result<(), Failed> {
             let _ = background;
             Ok(())
         }
@@ -987,7 +998,9 @@ mod noop {
 
     impl Config {
         /// Creates the proces from a config file.
-        pub fn from_config_file(file: &mut ConfigFile) -> Result<Self, Failed> {
+        pub fn from_config_file(
+            file: &mut ConfigFile
+        ) -> Result<Self, Failed> {
             let _ = file;
             Ok(Self)
         }
