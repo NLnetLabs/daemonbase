@@ -12,10 +12,10 @@ pub use self::noop::{Args, Config, EnvSockets, Process};
 ///
 #[cfg(unix)]
 mod unix {
+    use std::io;
     use std::env::set_current_dir;
     use std::ffi::{CStr, CString};
     use std::fs::{File, OpenOptions};
-    use std::io;
     use std::io::Write;
     use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6, TcpListener, UdpSocket};
     use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, RawFd};
@@ -24,9 +24,9 @@ mod unix {
     use std::str::FromStr;
     use log::error;
     use nix::fcntl::{fcntl, open, FcntlArg, FdFlag, Flock, FlockArg, OFlag};
-    use nix::sys::socket::{getsockname, getsockopt, SockType, SockaddrStorage};
-    use nix::sys::stat::umask;
     use nix::sys::stat::Mode;
+    use nix::sys::stat::umask;
+    use nix::sys::socket::{getsockname, getsockopt, SockType, SockaddrStorage};
     use nix::unistd::{chroot, close, dup2, fork, getpid, setsid};
     use nix::unistd::{Gid, Group, Uid, User};
     use serde::{Deserialize, Serialize};
