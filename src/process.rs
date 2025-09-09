@@ -195,7 +195,9 @@ mod unix {
 
             /// Fallback function for `nix::unistd::setresuid`.
             #[allow(dead_code)]
-            fn setresuid(ruid: Uid, euid: Uid, _suid: Uid) -> Result<(), nix::errno::Errno> {
+            fn setresuid(
+                ruid: Uid, euid: Uid, _suid: Uid
+            ) -> Result<(), nix::errno::Errno> {
                 use nix::libc::{c_int, uid_t};
 
                 #[allow(dead_code)]
@@ -216,16 +218,15 @@ mod unix {
             }
 
             let Some(user) = self.config.user.as_ref() else {
-                return Ok(());
+                return Ok(())
             };
 
             // If we don’t have an explicit group, we use the user’s group.
-            let gid = self
-                .config
-                .group
-                .as_ref()
-                .map(|g| g.gid)
-                .unwrap_or_else(|| user.gid);
+            let gid = self.config.group.as_ref().map(|g| {
+                g.gid
+            }).unwrap_or_else(|| {
+                user.gid
+            });
 
             // Let the system load the supplemental groups for the user.
             {
@@ -233,7 +234,9 @@ mod unix {
                 use nix::unistd::*;
 
                 initgroups(&user.c_name, gid).map_err(|err| {
-                    error!("failed to initialize the group access list: {err}",);
+                    error!(
+                        "failed to initialize the group access list: {err}"
+                    );
                     Failed
                 })?;
             }
@@ -244,7 +247,9 @@ mod unix {
                 use nix::unistd::*;
 
                 setresgid(gid, gid, gid).map_err(|err| {
-                    error!("failed to set group ID: {err}");
+                    error!(
+                        "failed to set group ID: {err}"
+                    );
                     Failed
                 })?;
             }
@@ -255,7 +260,9 @@ mod unix {
                 use nix::unistd::*;
 
                 setresuid(user.uid, user.uid, user.uid).map_err(|err| {
-                    error!("failed to set user ID: {err}");
+                    error!(
+                        "failed to set user ID: {err}"
+                    );
                     Failed
                 })?;
             }
@@ -267,32 +274,32 @@ mod unix {
         fn create_pid_file(&mut self) -> Result<(), Failed> {
             let path = match self.config.pid_file.as_ref() {
                 Some(path) => path,
-                None => return Ok(()),
+                None => return Ok(())
             };
 
             let file = OpenOptions::new()
-                .read(false)
-                .write(true)
-                .create(true)
-                .truncate(true)
+                .read(false).write(true)
+                .create(true).truncate(true)
                 .mode(0o666)
                 .open(path);
             let file = match file {
                 Ok(file) => file,
                 Err(err) => {
-                    error!(
-                        "Fatal: failed to create PID file {}: {}",
-                        path.display(),
-                        err
+                    error!("Fatal: failed to create PID file {}: {}",
+                        path.display(), err
                     );
-                    return Err(Failed);
+                    return Err(Failed)
                 }
             };
-            let file = match Flock::lock(file, FlockArg::LockExclusiveNonblock) {
+            let file = match Flock::lock(
+                file, FlockArg::LockExclusiveNonblock
+            ) {
                 Ok(file) => file,
                 Err((_, err)) => {
-                    error!("Fatal: cannot lock PID file {}: {}", path.display(), err);
-                    return Err(Failed);
+                    error!("Fatal: cannot lock PID file {}: {}",
+                        path.display(), err
+                    );
+                    return Err(Failed)
                 }
             };
             self.pid_file = Some(file);
@@ -304,8 +311,10 @@ mod unix {
             if let Some(pid_file) = self.pid_file.as_mut() {
                 let pid = format!("{}", getpid());
                 if let Err(err) = pid_file.write_all(pid.as_bytes()) {
-                    error!("Fatal: failed to write PID to PID file: {err}");
-                    return Err(Failed);
+                    error!(
+                        "Fatal: failed to write PID to PID file: {err}"
+                    );
+                    return Err(Failed)
                 }
             }
             Ok(())
@@ -329,23 +338,18 @@ mod unix {
 
         /// Changes the current working directory in necessary.
         fn change_working_dir(&self, background: bool) -> Result<(), Failed> {
-            let mut path = self
-                .config
-                .working_dir
-                .as_ref()
-                .or(self.config.chroot.as_ref())
-                .map(ConfigPath::as_path);
+            let mut path = self.config.working_dir.as_ref().or(
+                self.config.chroot.as_ref()
+            ).map(ConfigPath::as_path);
             if background {
                 path = path.or(Some(Path::new("/")));
             }
             if let Some(path) = path {
                 if let Err(err) = set_current_dir(path) {
-                    error!(
-                        "Fatal: failed to set working directory {}: {}",
-                        path.display(),
-                        err
+                    error!("Fatal: failed to set working directory {}: {}",
+                        path.display(), err
                     );
-                    return Err(Failed);
+                    return Err(Failed)
                 }
             }
 
@@ -354,30 +358,41 @@ mod unix {
 
         /// Changes the stdio streams to /dev/null.
         fn redirect_stdio(&self) -> Result<(), Failed> {
-            let dev_null = match open("/dev/null", OFlag::O_RDWR, Mode::empty()) {
+            let dev_null = match open(
+                "/dev/null", OFlag::O_RDWR,
+                Mode::empty()
+            ) {
                 Ok(fd) => fd,
                 Err(err) => {
                     error!("Fatal: failed to open /dev/null: {err}");
-                    return Err(Failed);
+                    return Err(Failed)
                 }
             };
 
             if let Err(err) = dup2(dev_null, io::stdin().as_fd().as_raw_fd()) {
-                error!("Fatal: failed to redirect stdio to /dev/null: {err}");
-                return Err(Failed);
+                error!(
+                    "Fatal: failed to redirect stdio to /dev/null: {err}"
+                );
+                return Err(Failed)
             }
             if let Err(err) = dup2(dev_null, io::stdout().as_fd().as_raw_fd()) {
-                error!("Fatal: failed to redirect stdout to /dev/null: {err}");
-                return Err(Failed);
+                error!(
+                    "Fatal: failed to redirect stdout to /dev/null: {err}"
+                );
+                return Err(Failed)
             }
             if let Err(err) = dup2(dev_null, io::stderr().as_fd().as_raw_fd()) {
-                error!("Fatal: failed to redirect stderr to /dev/null: {err}");
-                return Err(Failed);
+                error!(
+                    "Fatal: failed to redirect stderr to /dev/null: {err}"
+                );
+                return Err(Failed)
             }
 
             if let Err(err) = close(dev_null) {
-                error!("Fatal: failed to close /dev/null: {err}");
-                return Err(Failed);
+                error!(
+                    "Fatal: failed to close /dev/null: {err}"
+                );
+                return Err(Failed)
             }
 
             Ok(())
@@ -407,7 +422,9 @@ mod unix {
     }
 
     impl Config {
-        pub fn from_config_file(file: &mut ConfigFile) -> Result<Self, Failed> {
+        pub fn from_config_file(
+            file: &mut ConfigFile
+        ) -> Result<Self, Failed> {
             Ok(Config {
                 pid_file: file.take_path("pid-file")?,
                 working_dir: file.take_path("working-dir")?,
