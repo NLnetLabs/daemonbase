@@ -710,14 +710,35 @@ mod unix {
             self.remove(SocketType::Udp, addr)
         }
 
+        /// Returns the first remaining UDP socket from those received via the
+        /// environment.
+        ///
+        /// If found, removes the file descriptor from the collection, sets
+        /// the FD_CLOEXEC flag on the file descriptor and returns it as the
+        /// Rust type Some(UdpSocket).
         pub fn pop_udp(&mut self) -> Option<UdpSocket> {
             self.pop(SocketType::Udp)
         }
 
+        /// Returns the specified TCP socket, assuming it was supplied
+        /// to us via the environment.
+        ///
+        /// If found, removes the file descriptor from the collection, sets
+        /// the FD_CLOEXEC flag on the file descriptor and returns it as the
+        /// Rust type Some(UdpSocket).
+        ///
+        /// Subsequent attempts to remove the same TCP socket, or any other
+        /// non-existing socket, will return None.
         pub fn take_tcp(&mut self, addr: &SocketAddr) -> Option<TcpListener> {
             self.remove(SocketType::Tcp, addr)
         }
 
+        /// Returns the first remaining TCP socket from those received via the
+        /// environment.
+        ///
+        /// If found, removes the file descriptor from the collection, sets
+        /// the FD_CLOEXEC flag on the file descriptor and returns it as the
+        /// Rust type Some(UdpSocket).
         pub fn pop_tcp(&mut self) -> Option<TcpListener> {
             self.pop(SocketType::Tcp)
         }
