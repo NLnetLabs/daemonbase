@@ -13,7 +13,7 @@ pub use self::noop::{Args, Config, EnvSockets, Process};
 #[cfg(unix)]
 mod unix {
     use std::io;
-    use std::env::set_current_dir;
+    use std::env::{set_current_dir, VarError};
     use std::ffi::{CStr, CString};
     use std::fs::{File, OpenOptions};
     use std::io::Write;
@@ -685,20 +685,32 @@ mod unix {
         pub fn from_env(unset_environment: bool) -> Self {
             let own_pid = nix::unistd::Pid::this().as_raw().to_string();
             let var_pid = std::env::var("LISTEN_PID").unwrap_or_default();
-            let var_listen_fds = std::env::var("LISTEN_FDS");
             let mut fds = vec![];
 
             if !var_pid.is_empty() && own_pid == var_pid {
-                if let Some(num_fds) = var_listen_fds.ok().and_then(|v| v.parse::<usize>().ok()) {
-                    let num_fds = num_fds.clamp(0, MAX_LISTEN_FDS);
-                    fds.reserve_exact(num_fds);
-
-                    // Here we do arithmetic with file descriptors, because
-                    // this is how the env var protocol for passing sockets is
-                    // defined as FDs are actually just integer values.
-                    for fd in SD_LISTEN_FDS_START..SD_LISTEN_FDS_START + (num_fds as RawFd) {
-                        if let Some(socket_info) = SocketInfo::from_fd(fd) {
-                            fds.push(socket_info);
+                match std::env::var("LISTEN_FDS") {
+                    Err(VarError::NotPresent) => { /* Nothing to do */ },
+                    Err(err) => log::warn!("SystemD LISTEN_FDS environment variable value is malformed: {err}"),
+                    Ok(var) => {
+                        match var.parse::<usize>() {
+                            Err(err) => log::warn!("SystemD LISTEN_FDS environment variable value is malformed: {err}"),
+                            Ok(mut num_fds) => {
+                                if num_fds > MAX_LISTEN_FDS {
+                                    log::warn!("SystemD LISTEN_FDS environment variable value is larger than {MAX_LISTEN_FDS}: additional socket file descriptors will be ignored");
+                                    num_fds = num_fds.clamp(0, MAX_LISTEN_FDS);
+                                }
+                                fds.reserve_exact(num_fds);
+        
+                                // Here we do arithmetic with file descriptors, because
+                                // this is how the env var protocol for passing sockets is
+                                // defined as FDs are actually just integer values.
+                                for fd in SD_LISTEN_FDS_START..SD_LISTEN_FDS_START + (num_fds as RawFd) {
+                                    match SocketInfo::from_fd(fd) {
+                                        Ok(socket_info) => fds.push(socket_info),
+                                        Err(err) => log::warn!("SystemD LISTEN_FDS provided file descriptor is not usable: {err}"),
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -867,39 +879,29 @@ mod unix {
         ///   - Have an address.
         ///
         /// Returns Some(SocketInfo) on success, None otherwise.
-        fn from_fd(fd: i32) -> Option<SocketInfo> {
+        fn from_fd(fd: i32) -> nix::Result<SocketInfo> {
             // [`getsockname()`]` will fail if the given argument is not "a
             // valid file descriptor" or does not "refer to a socket", so we
             // don't need to call fstat() to check that the FD is a socket, we
             // can let getsockname() take care of that for us.
             //
             // [`getsockname()`]: https://pubs.opengroup.org/onlinepubs/9699919799/functions/getsockname.html#tag_16_219_05
-            let Ok(sock_addr) = getsockname::<SockaddrStorage>(fd) else {
-                return None;
-            };
+            let sock_addr = getsockname::<SockaddrStorage>(fd)?;
 
             let sock_opt = unsafe {
                 let borrowed_fd = BorrowedFd::borrow_raw(fd);
-                let Ok(sock_opt) = getsockopt(&borrowed_fd, nix::sys::socket::sockopt::SockType)
-                else {
-                    return None;
-                };
-                sock_opt
+                getsockopt(&borrowed_fd, nix::sys::socket::sockopt::SockType)?
             };
 
-            let sock_addr = to_socket_addr(sock_addr)?;
+            let sock_addr = to_socket_addr(sock_addr).ok_or(nix::Error::ENOTSOCK)?;
 
             let socket_type = match sock_opt {
                 SockType::Datagram => SocketType::Udp,
                 SockType::Stream => SocketType::Tcp,
-                _ => {
-                    // We don't support these socket types, ignore this passed
-                    // FD.
-                    return None;
-                }
+                _ => return Err(nix::Error::ENOTSOCK),
             };
 
-            Some(SocketInfo::new(socket_type, sock_addr, fd))
+            Ok(SocketInfo::new(socket_type, sock_addr, fd))
         }
     }
 
