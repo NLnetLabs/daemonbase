@@ -1105,14 +1105,35 @@ mod noop {
             None
         }
 
+        /// Returns the first remaining UDP socket from those received via the
+        /// environment.
+        ///
+        /// If found, removes the file descriptor from the collection, sets
+        /// the FD_CLOEXEC flag on the file descriptor and returns it as the
+        /// Rust type Some(UdpSocket).
         pub fn pop_udp(&mut self) -> Option<UdpSocket> {
             None
         }
 
+        /// Returns the specified TCP socket, assuming it was supplied
+        /// to us via the environment.
+        ///
+        /// If found, removes the file descriptor from the collection, sets
+        /// the FD_CLOEXEC flag on the file descriptor and returns it as the
+        /// Rust type Some(UdpSocket).
+        ///
+        /// Subsequent attempts to remove the same TCP socket, or any other
+        /// non-existing socket, will return None.
         pub fn take_tcp(&mut self, _addr: &SocketAddr) -> Option<TcpListener> {
             None
         }
 
+        /// Returns the first remaining TCP socket from those received via the
+        /// environment.
+        ///
+        /// If found, removes the file descriptor from the collection, sets
+        /// the FD_CLOEXEC flag on the file descriptor and returns it as the
+        /// Rust type Some(UdpSocket).
         pub fn pop_tcp(&mut self) -> Option<TcpListener> {
             None
         }
