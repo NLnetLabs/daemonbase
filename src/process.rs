@@ -687,14 +687,18 @@ mod unix {
             let var_pid = std::env::var("LISTEN_PID").unwrap_or_default();
             let mut fds = vec![];
 
+            log::debug!("Checking SystemD LISTEN_PID env var: our PID={own_pid}, LISTEN_PID={var_pid:?}");
             if !var_pid.is_empty() && own_pid == var_pid {
-                match std::env::var("LISTEN_FDS") {
+                let var_fds = std::env::var("LISTEN_FDS");
+                log::debug!("Checking SystemD LISTEN_FDS env var: LISTEN_FDS={var_fds:?}");
+                match var_fds {
                     Err(VarError::NotPresent) => { /* Nothing to do */ },
                     Err(err) => log::warn!("SystemD LISTEN_FDS environment variable value is malformed: {err}"),
                     Ok(var) => {
                         match var.parse::<usize>() {
                             Err(err) => log::warn!("SystemD LISTEN_FDS environment variable value is malformed: {err}"),
                             Ok(mut num_fds) => {
+                                log::debug!("Received {num_fds} socket file descriptors via the SystemD LISTEN_FDS env var.");
                                 if num_fds > MAX_LISTEN_FDS {
                                     log::warn!("SystemD LISTEN_FDS environment variable value is larger than {MAX_LISTEN_FDS}: additional socket file descriptors will be ignored");
                                     num_fds = num_fds.clamp(0, MAX_LISTEN_FDS);
@@ -706,7 +710,11 @@ mod unix {
                                 // defined as FDs are actually just integer values.
                                 for fd in SD_LISTEN_FDS_START..SD_LISTEN_FDS_START + (num_fds as RawFd) {
                                     match SocketInfo::from_fd(fd) {
-                                        Ok(socket_info) => fds.push(socket_info),
+                                        Ok(socket_info) => {
+                                            log::trace!("Received socket file descriptor {} via SystemD LISTEN_FDS env var: type={}, address={}",
+                                                socket_info.raw_fd, socket_info.socket_type, socket_info.socket_addr);
+                                            fds.push(socket_info);
+                                        }
                                         Err(err) => log::warn!("SystemD LISTEN_FDS provided file descriptor is not usable: {err}"),
                                     }
                                 }
@@ -717,6 +725,7 @@ mod unix {
             }
 
             if unset_environment {
+                log::trace!("Unsetting SystemD LISTEN_PID and LISTEN_FDS environment variables.");
                 std::env::remove_var("LISTEN_PID");
                 std::env::remove_var("LISTEN_FDS");
             }
@@ -863,9 +872,13 @@ mod unix {
         /// Returns Some(T) if the FD_CLOEXEC flag could be set, None
         /// otherwise.
         fn finalize<T: FromRawFd>(self) -> Option<T> {
-            if fcntl(self.raw_fd, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)).is_ok() {
-                unsafe {
+            log::trace!("Setting FD_CLOEXEC on SystemD LISTEN_FDS received socket file descriptor {}", self.raw_fd);
+            match fcntl(self.raw_fd, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)) {
+                Ok(_) => unsafe {
                     return Some(FromRawFd::from_raw_fd(self.raw_fd));
+                }
+                Err(err) => {
+                    log::warn!("Setting FD_CLOEXEC on SystemD LISTEN_FDS received socket file descriptor {} failed: {err}", self.raw_fd);
                 }
             }
             None
@@ -913,6 +926,15 @@ mod unix {
 
         /// TCP.
         Tcp,
+    }
+
+    impl std::fmt::Display for SocketType {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                SocketType::Udp => write!(f, "UDP"),
+                SocketType::Tcp => write!(f, "TCP"),
+            }
+        }
     }
 
     /// Convert a SockaddrStorage object into SocketAddr, if possible.
