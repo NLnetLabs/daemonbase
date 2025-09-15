@@ -919,6 +919,20 @@ mod unix {
             // [`getsockname()`]: https://pubs.opengroup.org/onlinepubs/9699919799/functions/getsockname.html#tag_16_219_05
             let sock_addr = getsockname::<SockaddrStorage>(fd)?;
 
+            if fd == -1 {
+                // Well this shouldn't happen, but we have to check for it
+                // because borrow_raw() below assumes this isn't the case.
+                return Err(nix::Error::ENOTSOCK);
+            }
+
+            // SAFETY: Only the call to borrow_raw() is unsafe, and only if:
+            //   - fd is -1, but we check for that above.
+            //   - the fd is closed hwile the BorrowedFd is held, but
+            //     getsockopt() won't close it, and we drop the BorrowedFd
+            //     immediately after the call to getsoctopt() at the end of
+            //     the block. However, we can't do anything about some other
+            //     external actor closing the FD during this unsafe block...
+            //     we've done the best we can.
             let sock_opt = unsafe {
                 let borrowed_fd = BorrowedFd::borrow_raw(fd);
                 getsockopt(&borrowed_fd, nix::sys::socket::sockopt::SockType)?
