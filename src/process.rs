@@ -7,10 +7,10 @@ pub use self::unix::{Args, Config, Process};
 pub use self::linux::EnvSockets;
 
 #[cfg(not(unix))]
-pub use self::noop::{Args, Config, EnvSockets, Process};
+pub use self::not_unix::{Args, Config, EnvSockets, Process};
 
 #[cfg(not(target_os = "linux"))]
-pub use self::noop::EnvSockets;
+pub use self::not_linux::EnvSockets;
 
 //============ unix ==========================================================
 
@@ -1004,7 +1004,7 @@ mod linux {
 /// ‘Empty’ implementation for systems we don’t really support.
 ///
 #[cfg(not(unix))]
-mod noop {
+mod not_unix {
     use std::net::{SocketAddr, TcpListener, UdpSocket};
     use std::path::{PathBuf, StripPrefixError};
     use serde::{Deserialize, Serialize};
@@ -1127,7 +1127,7 @@ mod noop {
 }
 
 #[cfg(not(target_os = "linux"))]
-mod noop {
+mod not_linux {
     //-------- EnvSockets ----------------------------------------------------
 
     use std::net::{SocketAddr, TcpListener, UdpSocket};
