@@ -850,7 +850,7 @@ mod linux {
                 .iter()
                 .position(|v| v.socket_type == ty && v.socket_addr == *addr)
                 .and_then(|idx| self.fds.remove(idx).finalize())?;
-            log::trace!("daemonbase EnvSockets::remove({ty}, {addr}) = {res:?}");
+            log::trace!("EnvSockets::remove({ty}, {addr}) = {res:?}");
             Some(res)
         }
 
