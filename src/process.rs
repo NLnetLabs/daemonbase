@@ -7,7 +7,7 @@ pub use self::unix::{Args, Config, Process};
 pub use self::linux::EnvSockets;
 
 #[cfg(not(unix))]
-pub use self::not_unix::{Args, Config, EnvSockets, Process};
+pub use self::not_unix::{Args, Config, Process};
 
 #[cfg(not(target_os = "linux"))]
 pub use self::not_linux::EnvSockets;
