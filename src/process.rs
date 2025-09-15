@@ -1,10 +1,16 @@
 //! Process management.
 
 #[cfg(unix)]
-pub use self::unix::{Args, Config, EnvSockets, Process};
+pub use self::unix::{Args, Config, Process};
+
+#[cfg(target_os = "linux")]
+pub use self::linux::EnvSockets;
 
 #[cfg(not(unix))]
 pub use self::noop::{Args, Config, EnvSockets, Process};
+
+#[cfg(not(target_os = "linux"))]
+pub use self::noop::EnvSockets;
 
 //============ unix ==========================================================
 
@@ -13,20 +19,18 @@ pub use self::noop::{Args, Config, EnvSockets, Process};
 #[cfg(unix)]
 mod unix {
     use std::io;
-    use std::env::{set_current_dir, VarError};
+    use std::env::set_current_dir;
     use std::ffi::{CStr, CString};
     use std::fs::{File, OpenOptions};
     use std::io::Write;
-    use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, RawFd};
+    use std::os::fd::{AsFd, AsRawFd};
     use std::os::unix::fs::OpenOptionsExt;
-    use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6, TcpListener, UdpSocket};
     use std::path::{Path, PathBuf, StripPrefixError};
     use std::str::FromStr;
     use log::error;
-    use nix::fcntl::{fcntl, open, FcntlArg, FdFlag, Flock, FlockArg, OFlag};
+    use nix::fcntl::{open, Flock, FlockArg, OFlag};
     use nix::sys::stat::Mode;
     use nix::sys::stat::umask;
-    use nix::sys::socket::{getsockname, getsockopt, SockType, SockaddrStorage};
     use nix::unistd::{chroot, close, dup2, fork, getpid, setsid};
     use nix::unistd::{Gid, Group, Uid, User};
     use serde::{Deserialize, Serialize};
@@ -636,8 +640,15 @@ mod unix {
             user.name
         }
     }
+}
 
+#[cfg(target_os = "linux")]
+mod linux {
     //-------- EnvSockets ----------------------------------------------------
+
+    use std::{env::VarError, net::{SocketAddr, SocketAddrV4, SocketAddrV6, TcpListener, UdpSocket}, os::fd::{BorrowedFd, FromRawFd, RawFd}};
+
+    use nix::{fcntl::{fcntl, FcntlArg, FdFlag}, sys::socket::{getsockname, getsockopt, SockType, SockaddrStorage}};
 
     const SD_LISTEN_FDS_START: RawFd = 3;
 
@@ -797,8 +808,8 @@ mod unix {
             self.pop(SocketType::Udp)
         }
 
-        /// Returns a TCP socket that is bound to the specified local address
-        /// if it was supplied to us via the environment.
+        /// Returns a TCP listener that is bound to the specified local
+        /// address, if it was supplied to us via the environment.
         ///
         /// If found, removes the file descriptor from the collection, sets
         /// the FD_CLOEXEC flag on the file descriptor and returns it as the
@@ -1113,14 +1124,22 @@ mod noop {
             Config
         }
     }
+}
 
+#[cfg(target_os = "linux")]
+mod noop {
     //-------- EnvSockets ----------------------------------------------------
+
+    use std::net::{SocketAddr, TcpListener, UdpSocket};
 
     pub struct EnvSockets;
 
+    pub enum EnvSocketError {}
+
     impl EnvSockets {
-        pub fn from_env(_unset_environment: bool) -> Self {
-            Self
+        /// Capture socket file descriptors from environment variables.
+        pub fn from_env(_max_fds_to_process: Option<usize>) -> Result<Self, EnvSocketError> {
+            Ok(Self)
         }
 
         /// Were socket descriptors passed to us via the environment?
@@ -1134,7 +1153,7 @@ mod noop {
         /// the specified address?
         ///
         /// Returns true if so, false otherwise.
-        pub fn has_udp(&self, _addr: &SocketAddr) -> bool {
+        pub fn has_udp(&self, _local_addr: &SocketAddr) -> bool {
             false
         }
 
@@ -1142,12 +1161,12 @@ mod noop {
         /// the specified address?
         ///
         /// Returns true if so, false otherwise.
-        pub fn has_tcp(&self, _addr: &SocketAddr) -> bool {
+        pub fn has_tcp(&self, _local_addr: &SocketAddr) -> bool {
             false
         }
 
-        /// Returns the specified UDP socket, assuming it was supplied
-        /// to us via the environment.
+        /// Returns a UDP socket that is bound to the specified local address,
+        /// if it was supplied to us via the environment.
         ///
         /// If found, removes the file descriptor from the collection, sets
         /// the FD_CLOEXEC flag on the file descriptor and returns it as the
@@ -1169,8 +1188,8 @@ mod noop {
             None
         }
 
-        /// Returns the specified TCP socket, assuming it was supplied
-        /// to us via the environment.
+        /// Returns a TCP listener that is bound to the specified local
+        /// address, if it was supplied to us via the environment.
         ///
         /// If found, removes the file descriptor from the collection, sets
         /// the FD_CLOEXEC flag on the file descriptor and returns it as the
