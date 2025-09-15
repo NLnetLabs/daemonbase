@@ -702,7 +702,7 @@ mod unix {
             let var_pid = std::env::var("LISTEN_PID")?;
             let mut fds = vec![];
 
-            log::debug!("Checking SystemD LISTEN_PID env var: our PID={own_pid}, LISTEN_PID={var_pid:?}");
+            log::debug!("Checking systemd LISTEN_PID env var: our PID={own_pid}, LISTEN_PID={var_pid:?}");
 
             if own_pid != var_pid {
                 return Err(EnvSocketError::NotForUs);
@@ -710,10 +710,10 @@ mod unix {
 
             let var_fds = std::env::var("LISTEN_FDS")?;
 
-            log::debug!("Checking SystemD LISTEN_FDS env var: LISTEN_FDS={var_fds:?}");
+            log::debug!("Checking systemd LISTEN_FDS env var: LISTEN_FDS={var_fds:?}");
             let mut num_fds = var_fds.parse::<usize>().map_err(|_| EnvSocketError::Malformed)?;
 
-            log::debug!("Received {num_fds} socket file descriptors via the SystemD LISTEN_FDS env var.");
+            log::debug!("Received {num_fds} socket file descriptors via the systemd LISTEN_FDS env var.");
             if let Some(max) = max_fds_to_process {
                 num_fds = num_fds.clamp(0, max);
             }
@@ -726,7 +726,7 @@ mod unix {
             for fd in SD_LISTEN_FDS_START..SD_LISTEN_FDS_START + (num_fds as RawFd) {
                 let socket_info = SocketInfo::from_fd(fd)?;
 
-                log::trace!("Received socket file descriptor {} via SystemD LISTEN_FDS env var: type={}, address={}",
+                log::trace!("Received socket file descriptor {} via systemd LISTEN_FDS env var: type={}, address={}",
                     socket_info.raw_fd, socket_info.socket_type, socket_info.socket_addr);
                 fds.push(socket_info);
             }
@@ -742,7 +742,7 @@ mod unix {
         /// This function is only safe to call in a single threaded context
         /// as it calls [`std::env::remove_var()`].
         pub fn clear_env() {
-            log::trace!("Unsetting SystemD LISTEN_PID and LISTEN_FDS environment variables.");
+            log::trace!("Unsetting systemd LISTEN_PID and LISTEN_FDS environment variables.");
             std::env::remove_var("LISTEN_PID");
             std::env::remove_var("LISTEN_FDS");
         }
@@ -890,13 +890,13 @@ mod unix {
         /// Returns Some(T) if the FD_CLOEXEC flag could be set, None
         /// otherwise.
         fn finalize<T: FromRawFd>(self) -> Option<T> {
-            log::trace!("Setting FD_CLOEXEC on SystemD LISTEN_FDS received socket file descriptor {}", self.raw_fd);
+            log::trace!("Setting FD_CLOEXEC on systemd LISTEN_FDS received socket file descriptor {}", self.raw_fd);
             match fcntl(self.raw_fd, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)) {
                 Ok(_) => unsafe {
                     return Some(FromRawFd::from_raw_fd(self.raw_fd));
                 }
                 Err(err) => {
-                    log::warn!("Setting FD_CLOEXEC on SystemD LISTEN_FDS received socket file descriptor {} failed: {err}", self.raw_fd);
+                    log::warn!("Setting FD_CLOEXEC on systemd LISTEN_FDS received socket file descriptor {} failed: {err}", self.raw_fd);
                 }
             }
             None
