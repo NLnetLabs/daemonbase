@@ -1126,7 +1126,7 @@ mod noop {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(not(target_os = "linux"))]
 mod noop {
     //-------- EnvSockets ----------------------------------------------------
 
@@ -1139,7 +1139,7 @@ mod noop {
     impl EnvSockets {
         /// Capture socket file descriptors from environment variables.
         pub fn from_env(_max_fds_to_process: Option<usize>) -> Result<Self, EnvSocketError> {
-            Ok(Self)
+            Ok(EnvSockets)
         }
 
         /// Were socket descriptors passed to us via the environment?
