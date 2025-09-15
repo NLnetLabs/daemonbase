@@ -1005,7 +1005,6 @@ mod linux {
 ///
 #[cfg(not(unix))]
 mod not_unix {
-    use std::net::{SocketAddr, TcpListener, UdpSocket};
     use std::path::{PathBuf, StripPrefixError};
     use serde::{Deserialize, Serialize};
     use crate::config::{ConfigFile, ConfigPath};
