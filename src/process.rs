@@ -663,6 +663,7 @@ mod linux {
 
     /// An error occurred while working with environment variable derived
     /// socket file descriptors.
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub enum EnvSocketError {
         /// The environment variables provided were for another PID
         /// than our own.
@@ -1133,6 +1134,7 @@ mod not_linux {
 
     pub struct EnvSockets;
 
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub enum EnvSocketError {}
 
     impl EnvSockets {
