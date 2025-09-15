@@ -639,6 +639,8 @@ mod unix {
 
     //-------- EnvSockets ----------------------------------------------------
 
+    const SD_LISTEN_FDS_START: RawFd = 3;
+
     /// Accces to pre-bound sockets passed via environment variables.
     pub struct EnvSockets {
         /// An ordered collection of socket file descriptors along with their
@@ -648,11 +650,40 @@ mod unix {
         fds: Vec<SocketInfo>,
     }
 
-    const SD_LISTEN_FDS_START: RawFd = 3;
-    const MAX_LISTEN_FDS: usize = 32; // Arbitrary limit against bad input.
+    /// An error occurred while working with environment variable derived
+    /// socket file descriptors.
+    pub enum EnvSocketError {
+        /// The environment variables provided were for another PID
+        /// than our own.
+        NotForUs,
+
+        /// The environment variables were not set.
+        NotAvailable, 
+        
+        /// The environment variables were malformed.
+        Malformed,
+
+        /// A provided file descsriptor was invalid.
+        Unusable,
+    }
+
+    impl From<VarError> for EnvSocketError {
+        fn from(err: VarError) -> Self {
+            match err {
+                VarError::NotPresent => EnvSocketError::NotAvailable,
+                VarError::NotUnicode(_) => EnvSocketError::Malformed,
+            }
+        }
+    }
+
+    impl From<nix::errno::Errno> for EnvSocketError {
+        fn from(_: nix::errno::Errno) -> Self {
+            EnvSocketError::Unusable
+        }
+    }
 
     impl EnvSockets {
-        /// Retrieve pre-bound socket identifiers from environment variables.
+        /// Capture socket file descriptors from environment variables.
         ///
         /// Uses the following environment variables per [`sd_listen_fds()``]:
         ///   - LISTEN_PID: Must match our own PID.
@@ -661,76 +692,59 @@ mod unix {
         /// The remaining FDs are numbered SD_LISTEN_FDS_START + n where
         /// SD_LISTEN_FDS_START is defined as 3 in <systemd/sd-daemon.h>.
         ///
-        /// If the `unset_environment` flag is true and the LISTEN_PID
-        /// variable matches our PID, the LISTEN_PID and LISTEN_FDS
-        /// environment variables will be removed before this function
-        /// returns.
-        ///
-        /// SystemD documentation makes no mention of a maximum value for
-        /// LISTEN_FDS. This function will limit the LISTEN_FDS value to 32
-        /// to prevent atempts to allocate large amounts of memory due to an
-        /// accidental or malicious large LISTEN_FDS value.
-        ///
         /// Only sockets of type AF_INET UDP and AF_INET TCP, whose address can
         /// be determined, will be captured by this function. Other socket file
         /// descriptors will be ignored.
         ///
         /// [`sd_listen_fds()`]: https://www.man7.org/linux/man-pages/man3/sd_listen_fds.3.html#NOTES
-        ///
+        pub fn from_env(max_fds_to_process: Option<usize>) -> Result<Self, EnvSocketError> {
+            let own_pid = nix::unistd::Pid::this().as_raw().to_string();
+            let var_pid = std::env::var("LISTEN_PID")?;
+            let mut fds = vec![];
+
+            log::debug!("Checking SystemD LISTEN_PID env var: our PID={own_pid}, LISTEN_PID={var_pid:?}");
+
+            if own_pid != var_pid {
+                return Err(EnvSocketError::NotForUs);
+            }
+
+            let var_fds = std::env::var("LISTEN_FDS")?;
+
+            log::debug!("Checking SystemD LISTEN_FDS env var: LISTEN_FDS={var_fds:?}");
+            let mut num_fds = var_fds.parse::<usize>().map_err(|_| EnvSocketError::Malformed)?;
+
+            log::debug!("Received {num_fds} socket file descriptors via the SystemD LISTEN_FDS env var.");
+            if let Some(max) = max_fds_to_process {
+                num_fds = num_fds.clamp(0, max);
+            }
+    
+            fds.reserve_exact(num_fds);
+        
+            // Here we do arithmetic with file descriptors, because
+            // this is how the env var protocol for passing sockets is
+            // defined as FDs are actually just integer values.
+            for fd in SD_LISTEN_FDS_START..SD_LISTEN_FDS_START + (num_fds as RawFd) {
+                let socket_info = SocketInfo::from_fd(fd)?;
+
+                log::trace!("Received socket file descriptor {} via SystemD LISTEN_FDS env var: type={}, address={}",
+                    socket_info.raw_fd, socket_info.socket_type, socket_info.socket_addr);
+                fds.push(socket_info);
+            }
+
+            Ok(Self { fds })
+        }
+
+        /// Unset the LISTEN_PID and LISTEN_FDS environment variables.
+        /// 
         /// Safety:
         /// =======
         ///
         /// This function is only safe to call in a single threaded context
         /// as it calls [`std::env::remove_var()`].
-        pub fn from_env(unset_environment: bool) -> Self {
-            let own_pid = nix::unistd::Pid::this().as_raw().to_string();
-            let var_pid = std::env::var("LISTEN_PID").unwrap_or_default();
-            let mut fds = vec![];
-
-            log::debug!("Checking SystemD LISTEN_PID env var: our PID={own_pid}, LISTEN_PID={var_pid:?}");
-            if !var_pid.is_empty() && own_pid == var_pid {
-                let var_fds = std::env::var("LISTEN_FDS");
-                log::debug!("Checking SystemD LISTEN_FDS env var: LISTEN_FDS={var_fds:?}");
-                match var_fds {
-                    Err(VarError::NotPresent) => { /* Nothing to do */ },
-                    Err(err) => log::warn!("SystemD LISTEN_FDS environment variable value is malformed: {err}"),
-                    Ok(var) => {
-                        match var.parse::<usize>() {
-                            Err(err) => log::warn!("SystemD LISTEN_FDS environment variable value is malformed: {err}"),
-                            Ok(mut num_fds) => {
-                                log::debug!("Received {num_fds} socket file descriptors via the SystemD LISTEN_FDS env var.");
-                                if num_fds > MAX_LISTEN_FDS {
-                                    log::warn!("SystemD LISTEN_FDS environment variable value is larger than {MAX_LISTEN_FDS}: additional socket file descriptors will be ignored");
-                                    num_fds = num_fds.clamp(0, MAX_LISTEN_FDS);
-                                }
-                                fds.reserve_exact(num_fds);
-        
-                                // Here we do arithmetic with file descriptors, because
-                                // this is how the env var protocol for passing sockets is
-                                // defined as FDs are actually just integer values.
-                                for fd in SD_LISTEN_FDS_START..SD_LISTEN_FDS_START + (num_fds as RawFd) {
-                                    match SocketInfo::from_fd(fd) {
-                                        Ok(socket_info) => {
-                                            log::trace!("Received socket file descriptor {} via SystemD LISTEN_FDS env var: type={}, address={}",
-                                                socket_info.raw_fd, socket_info.socket_type, socket_info.socket_addr);
-                                            fds.push(socket_info);
-                                        }
-                                        Err(err) => log::warn!("SystemD LISTEN_FDS provided file descriptor is not usable: {err}"),
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if unset_environment {
-                log::trace!("Unsetting SystemD LISTEN_PID and LISTEN_FDS environment variables.");
-                std::env::remove_var("LISTEN_PID");
-                std::env::remove_var("LISTEN_FDS");
-            }
-
-            Self { fds }
+        pub fn clear_env() {
+            log::trace!("Unsetting SystemD LISTEN_PID and LISTEN_FDS environment variables.");
+            std::env::remove_var("LISTEN_PID");
+            std::env::remove_var("LISTEN_FDS");
         }
 
         /// Were socket descriptors passed to us via the environment?
@@ -819,11 +833,13 @@ mod unix {
         ///
         /// Subsequent attempts to remove the same TCP socket, or any other
         /// non-existing socket, will return None.
-        fn remove<T: FromRawFd>(&mut self, ty: SocketType, addr: &SocketAddr) -> Option<T> {
-            self.fds
+        fn remove<T: std::fmt::Debug + FromRawFd>(&mut self, ty: SocketType, addr: &SocketAddr) -> Option<T> {
+            let res = self.fds
                 .iter()
                 .position(|v| v.socket_type == ty && v.socket_addr == *addr)
-                .and_then(|idx| self.fds.remove(idx).finalize())
+                .and_then(|idx| self.fds.remove(idx).finalize())?;
+            log::trace!("daemonbase EnvSockets::remove({ty}, {addr}) = {res:?}");
+            Some(res)
         }
 
         /// Returns the first remaining socket of a given type from those
@@ -832,11 +848,13 @@ mod unix {
         /// If found, removes the file descriptor from the collection, sets
         /// the FD_CLOEXEC flag on the file descriptor and returns it as the
         /// Rust type Some(UdpSocket).
-        fn pop<T: FromRawFd>(&mut self, ty: SocketType) -> Option<T> {
-            self.fds
+        fn pop<T: std::fmt::Debug + FromRawFd>(&mut self, ty: SocketType) -> Option<T> {
+            let res = self.fds
                 .iter()
                 .position(|v| v.socket_type == ty)
-                .and_then(|idx| self.fds.remove(idx).finalize())
+                .and_then(|idx| self.fds.remove(idx).finalize())?;
+            log::trace!("daemonbase EnvSockets::pop({ty}) = {res:?}");
+            Some(res)
         }
     }
 
