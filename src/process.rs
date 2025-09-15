@@ -4,13 +4,13 @@
 pub use self::unix::{Args, Config, Process};
 
 #[cfg(target_os = "linux")]
-pub use self::linux::EnvSockets;
+pub use self::linux::{EnvSockets, EnvSocketsError};
 
 #[cfg(not(unix))]
 pub use self::not_unix::{Args, Config, Process};
 
 #[cfg(not(target_os = "linux"))]
-pub use self::not_linux::EnvSockets;
+pub use self::not_linux::{EnvSockets, EnvSocketsError};
 
 //============ unix ==========================================================
 
