@@ -765,7 +765,7 @@ mod unix {
         }
 
         /// Did the environment contain a TCP socket descriptor for
-        /// the specified address?
+        /// the specified local address?
         ///
         /// Returns true if so, false otherwise.
         pub fn has_tcp(&self, addr: &SocketAddr) -> bool {
@@ -774,8 +774,8 @@ mod unix {
                 .any(|v| v.socket_type == SocketType::Tcp && v.socket_addr == *addr)
         }
 
-        /// Returns the specified UDP socket, assuming it was supplied
-        /// to us via the environment.
+        /// Returns a UDP socket that is bound to the specified local address,
+        /// if it was supplied to us via the environment.
         ///
         /// If found, removes the file descriptor from the collection, sets
         /// the FD_CLOEXEC flag on the file descriptor and returns it as the
@@ -783,8 +783,8 @@ mod unix {
         ///
         /// Subsequent attempts to remove the same UDP socket, or any other
         /// non-existing socket, will return None.
-        pub fn take_udp(&mut self, addr: &SocketAddr) -> Option<UdpSocket> {
-            self.remove(SocketType::Udp, addr)
+        pub fn take_udp(&mut self, local_addr: &SocketAddr) -> Option<UdpSocket> {
+            self.remove(SocketType::Udp, local_addr)
         }
 
         /// Returns the first remaining UDP socket from those received via the
@@ -797,8 +797,8 @@ mod unix {
             self.pop(SocketType::Udp)
         }
 
-        /// Returns the specified TCP socket, assuming it was supplied
-        /// to us via the environment.
+        /// Returns a TCP socket that is bound to the specified local address
+        /// if it was supplied to us via the environment.
         ///
         /// If found, removes the file descriptor from the collection, sets
         /// the FD_CLOEXEC flag on the file descriptor and returns it as the
@@ -806,8 +806,8 @@ mod unix {
         ///
         /// Subsequent attempts to remove the same TCP socket, or any other
         /// non-existing socket, will return None.
-        pub fn take_tcp(&mut self, addr: &SocketAddr) -> Option<TcpListener> {
-            self.remove(SocketType::Tcp, addr)
+        pub fn take_tcp(&mut self, local_addr: &SocketAddr) -> Option<TcpListener> {
+            self.remove(SocketType::Tcp, local_addr)
         }
 
         /// Returns the first remaining TCP socket from those received via the
