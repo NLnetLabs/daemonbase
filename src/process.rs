@@ -664,7 +664,7 @@ mod linux {
     /// An error occurred while working with environment variable derived
     /// socket file descriptors.
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    pub enum EnvSocketError {
+    pub enum EnvSocketsError {
         /// The environment variables provided were for another PID
         /// than our own.
         NotForUs,
@@ -679,18 +679,18 @@ mod linux {
         Unusable,
     }
 
-    impl From<VarError> for EnvSocketError {
+    impl From<VarError> for EnvSocketsError {
         fn from(err: VarError) -> Self {
             match err {
-                VarError::NotPresent => EnvSocketError::NotAvailable,
-                VarError::NotUnicode(_) => EnvSocketError::Malformed,
+                VarError::NotPresent => EnvSocketsError::NotAvailable,
+                VarError::NotUnicode(_) => EnvSocketsError::Malformed,
             }
         }
     }
 
-    impl From<nix::errno::Errno> for EnvSocketError {
+    impl From<nix::errno::Errno> for EnvSocketsError {
         fn from(_: nix::errno::Errno) -> Self {
-            EnvSocketError::Unusable
+            EnvSocketsError::Unusable
         }
     }
 
@@ -709,7 +709,7 @@ mod linux {
         /// descriptors will be ignored.
         ///
         /// [`sd_listen_fds()`]: https://www.man7.org/linux/man-pages/man3/sd_listen_fds.3.html#NOTES
-        pub fn from_env(max_fds_to_process: Option<usize>) -> Result<Self, EnvSocketError> {
+        pub fn from_env(max_fds_to_process: Option<usize>) -> Result<Self, EnvSocketsError> {
             let own_pid = nix::unistd::Pid::this().as_raw().to_string();
             let var_pid = std::env::var("LISTEN_PID")?;
             let mut fds = vec![];
@@ -717,13 +717,13 @@ mod linux {
             log::debug!("Checking systemd LISTEN_PID env var: our PID={own_pid}, LISTEN_PID={var_pid:?}");
 
             if own_pid != var_pid {
-                return Err(EnvSocketError::NotForUs);
+                return Err(EnvSocketsError::NotForUs);
             }
 
             let var_fds = std::env::var("LISTEN_FDS")?;
 
             log::debug!("Checking systemd LISTEN_FDS env var: LISTEN_FDS={var_fds:?}");
-            let mut num_fds = var_fds.parse::<usize>().map_err(|_| EnvSocketError::Malformed)?;
+            let mut num_fds = var_fds.parse::<usize>().map_err(|_| EnvSocketsError::Malformed)?;
 
             log::debug!("Received {num_fds} socket file descriptors via the systemd LISTEN_FDS env var.");
             if let Some(max) = max_fds_to_process {
@@ -1135,11 +1135,11 @@ mod not_linux {
     pub struct EnvSockets;
 
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    pub enum EnvSocketError {}
+    pub enum EnvSocketsError {}
 
     impl EnvSockets {
         /// Capture socket file descriptors from environment variables.
-        pub fn from_env(_max_fds_to_process: Option<usize>) -> Result<Self, EnvSocketError> {
+        pub fn from_env(_max_fds_to_process: Option<usize>) -> Result<Self, EnvSocketsError> {
             Ok(EnvSockets)
         }
 
