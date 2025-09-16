@@ -4,13 +4,13 @@
 pub use self::unix::{Args, Config, Process};
 
 #[cfg(target_os = "linux")]
-pub use self::linux::{EnvSockets, EnvSocketsError};
+pub use self::linux::EnvSockets;
 
 #[cfg(not(unix))]
 pub use self::not_unix::{Args, Config, Process};
 
 #[cfg(not(target_os = "linux"))]
-pub use self::not_linux::{EnvSockets, EnvSocketsError};
+pub use self::not_linux::EnvSockets;
 
 //============ unix ==========================================================
 
@@ -642,6 +642,27 @@ mod unix {
     }
 }
 
+/// An error occurred while working with environment variable derived socket
+/// file descriptors.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum EnvSocketsError {
+    /// This instance of EnvSockets was already initialized from environment
+    /// variables.
+    AlreadyInitialized,
+
+    /// The environment variables provided were for another PID than our own.
+    NotForUs,
+
+    /// The environment variables were not set.
+    NotAvailable, 
+    
+    /// The environment variables were malformed.
+    Malformed,
+
+    /// A provided file descsriptor was invalid.
+    Unusable,
+}
+
 #[cfg(target_os = "linux")]
 mod linux {
     //-------- EnvSockets ----------------------------------------------------
@@ -649,6 +670,8 @@ mod linux {
     use std::{env::VarError, net::{SocketAddr, SocketAddrV4, SocketAddrV6, TcpListener, UdpSocket}, os::fd::{BorrowedFd, FromRawFd, RawFd}};
 
     use nix::{fcntl::{fcntl, FcntlArg, FdFlag}, sys::socket::{getsockname, getsockopt, SockType, SockaddrStorage}};
+
+    use super::EnvSocketsError;
 
     const SD_LISTEN_FDS_START: RawFd = 3;
 
@@ -664,28 +687,6 @@ mod linux {
         ///
         /// Preserves the order the sockets were provided to us.
         fds: Vec<SocketInfo>,
-    }
-
-    /// An error occurred while working with environment variable derived
-    /// socket file descriptors.
-    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    pub enum EnvSocketsError {
-        /// This instance of EnvSockets was already initialized from
-        /// environment variables.
-        AlreadyInitialized,
-
-        /// The environment variables provided were for another PID
-        /// than our own.
-        NotForUs,
-
-        /// The environment variables were not set.
-        NotAvailable, 
-        
-        /// The environment variables were malformed.
-        Malformed,
-
-        /// A provided file descsriptor was invalid.
-        Unusable,
     }
 
     impl From<VarError> for EnvSocketsError {
@@ -1032,6 +1033,7 @@ mod not_unix {
     use crate::config::{ConfigFile, ConfigPath};
     use crate::error::Failed;
 
+    use super::EnvSocketsError;
 
     //-------- Process -------------------------------------------------------
 
@@ -1156,10 +1158,6 @@ mod not_linux {
     /// Accces to pre-bound sockets passed via environment variables.
     #[derive(Debug, Default)]
     pub struct EnvSockets;
-
-    /// Accces to pre-bound sockets passed via environment variables.
-    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    pub enum EnvSocketsError {}
 
     impl EnvSockets {
         pub fn new() -> Self {
