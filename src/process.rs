@@ -653,7 +653,12 @@ mod linux {
     const SD_LISTEN_FDS_START: RawFd = 3;
 
     /// Accces to pre-bound sockets passed via environment variables.
+    #[derive(Debug, Default)]
     pub struct EnvSockets {
+        /// A flag indicating whether initialization from environment
+        /// variables was already done or not.
+        initialized: bool,
+
         /// An ordered collection of socket file descriptors along with their
         /// address and type.
         ///
@@ -665,6 +670,10 @@ mod linux {
     /// socket file descriptors.
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub enum EnvSocketsError {
+        /// This instance of EnvSockets was already initialized from
+        /// environment variables.
+        AlreadyInitialized,
+
         /// The environment variables provided were for another PID
         /// than our own.
         NotForUs,
@@ -695,6 +704,15 @@ mod linux {
     }
 
     impl EnvSockets {
+        /// Create an empty instance.
+        ///
+        /// This is useful to have in case the call to [`init_from_env()`]
+        /// fails but you still want to use the [`EnvSockets`] instance as if
+        /// [`init_from_env()`] had succeeded.
+        pub fn new() -> Self {
+            Default::default()
+        }
+
         /// Capture socket file descriptors from environment variables.
         ///
         /// Uses the following environment variables per [`sd_listen_fds()``]:
@@ -709,10 +727,13 @@ mod linux {
         /// descriptors will be ignored.
         ///
         /// [`sd_listen_fds()`]: https://www.man7.org/linux/man-pages/man3/sd_listen_fds.3.html#NOTES
-        pub fn from_env(max_fds_to_process: Option<usize>) -> Result<Self, EnvSocketsError> {
+        pub fn init_from_env(&mut self, max_fds_to_process: Option<usize>) -> Result<(), EnvSocketsError> {
+            if self.initialized {
+                return Err(EnvSocketsError::AlreadyInitialized);
+            }
+
             let own_pid = nix::unistd::Pid::this().as_raw().to_string();
             let var_pid = std::env::var("LISTEN_PID")?;
-            let mut fds = vec![];
 
             log::debug!("Checking systemd LISTEN_PID env var: our PID={own_pid}, LISTEN_PID={var_pid:?}");
 
@@ -730,7 +751,7 @@ mod linux {
                 num_fds = num_fds.clamp(0, max);
             }
     
-            fds.reserve_exact(num_fds);
+            self.fds.reserve_exact(num_fds);
         
             // Here we do arithmetic with file descriptors, because
             // this is how the env var protocol for passing sockets is
@@ -740,10 +761,10 @@ mod linux {
 
                 log::trace!("Received socket file descriptor {} via systemd LISTEN_FDS env var: type={}, address={}",
                     socket_info.raw_fd, socket_info.socket_type, socket_info.socket_addr);
-                fds.push(socket_info);
+                self.fds.push(socket_info);
             }
 
-            Ok(Self { fds })
+            Ok(())
         }
 
         /// Unset the LISTEN_PID and LISTEN_FDS environment variables.
@@ -1082,7 +1103,7 @@ mod not_unix {
         }
 
         /// Creates the process from command line arguments only.
-        pub fn from_args(args: Args) -> Self {
+        pub fn from_args(args: Args) -> Self {#[derive(Debug, Default)]
             let _ = args;
             Self
         }
@@ -1132,18 +1153,27 @@ mod not_linux {
 
     use std::net::{SocketAddr, TcpListener, UdpSocket};
 
+    /// Accces to pre-bound sockets passed via environment variables.
+    #[derive(Debug, Default)]
     pub struct EnvSockets;
 
+    /// Accces to pre-bound sockets passed via environment variables.
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub enum EnvSocketsError {}
 
     impl EnvSockets {
+        pub fn new() -> Self {
+            Default::default()
+        }
+
         /// Capture socket file descriptors from environment variables.
-        pub fn from_env(_max_fds_to_process: Option<usize>) -> Result<Self, EnvSocketsError> {
-            Ok(EnvSockets)
+        pub fn init_from_env(&mut self, _max_fds_to_process: Option<usize>) -> Result<(), EnvSocketsError> {
+            Ok(())
         }
 
         /// Were socket descriptors passed to us via the environment?
+        /// if !self.fds.is_empty() {
+        /// }return Err(EnvSocketsError::AlreadyInitialized);
         ///
         /// Returns false if not, true otherwise.
         pub fn is_empty(&self) -> bool {
