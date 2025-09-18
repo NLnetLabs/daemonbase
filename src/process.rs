@@ -1105,7 +1105,7 @@ mod not_unix {
         }
 
         /// Creates the process from command line arguments only.
-        pub fn from_args(args: Args) -> Self {#[derive(Debug, Default)]
+        pub fn from_args(args: Args) -> Self {
             let _ = args;
             Self
         }
