@@ -9,12 +9,17 @@ New
 * Reworked setting of user and group. If not provided explicitly, the
   group will now be set to the user’s group. The list of supplemental
   groups will be initialized from the user’s group list. ([#11])
+* Allow manually creating the process configuration so it can be used
+  without the _clap_ argument parser. ([#12])
+* Added support for systemd’s socket activation. ([#13])
 
 Bug fixes
 
 Other changes
 
 [11]: https://github.com/NLnetLabs/daemonbase/pull/11
+[12]: https://github.com/NLnetLabs/daemonbase/pull/12
+[13]: https://github.com/NLnetLabs/daemonbase/pull/13
 
 
 ## 0.1.3
