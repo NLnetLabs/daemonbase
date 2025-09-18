@@ -1033,8 +1033,6 @@ mod not_unix {
     use crate::config::{ConfigFile, ConfigPath};
     use crate::error::Failed;
 
-    use super::EnvSocketsError;
-
     //-------- Process -------------------------------------------------------
 
     pub struct Process;
