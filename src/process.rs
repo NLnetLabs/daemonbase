@@ -1155,6 +1155,8 @@ mod not_linux {
 
     use std::net::{SocketAddr, TcpListener, UdpSocket};
 
+    use super::EnvSocketsError;
+
     /// Accces to pre-bound sockets passed via environment variables.
     #[derive(Debug, Default)]
     pub struct EnvSockets;
