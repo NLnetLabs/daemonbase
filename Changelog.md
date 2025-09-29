@@ -1,8 +1,8 @@
 # Change Log
 
-## Unreleased next version
+## 0.1.4
 
-Breaking changes
+Released 2025-09-29.
 
 New
 
@@ -12,10 +12,6 @@ New
 * Allow manually creating the process configuration so it can be used
   without the _clap_ argument parser. ([#12])
 * Added support for systemd’s socket activation. ([#13])
-
-Bug fixes
-
-Other changes
 
 [11]: https://github.com/NLnetLabs/daemonbase/pull/11
 [12]: https://github.com/NLnetLabs/daemonbase/pull/12
