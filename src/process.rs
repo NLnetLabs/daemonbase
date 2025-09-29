@@ -665,15 +665,24 @@ pub enum EnvSocketsError {
 
 #[cfg(target_os = "linux")]
 mod linux {
-    //-------- EnvSockets ----------------------------------------------------
-
-    use std::{env::VarError, net::{SocketAddr, SocketAddrV4, SocketAddrV6, TcpListener, UdpSocket}, os::fd::{BorrowedFd, FromRawFd, RawFd}};
-
-    use nix::{fcntl::{fcntl, FcntlArg, FdFlag}, sys::socket::{getsockname, getsockopt, SockType, SockaddrStorage}};
-
+    use std::env::VarError;
+    use std::net::{
+        SocketAddr, SocketAddrV4, SocketAddrV6, TcpListener, UdpSocket
+    };
+    use std::os::fd::{BorrowedFd, FromRawFd, RawFd};
+    use nix::fcntl::{fcntl, FcntlArg, FdFlag};
+    use nix::sys::socket::{
+        getsockname, getsockopt, SockType, SockaddrStorage
+    };
     use super::EnvSocketsError;
 
+
+    //-------- Constants -----------------------------------------------------
+
+    /// The first file descriptor used by systemd.
     const SD_LISTEN_FDS_START: RawFd = 3;
+
+    //-------- EnvSockets ----------------------------------------------------
 
     /// Accces to pre-bound sockets passed via environment variables.
     #[derive(Debug, Default)]
@@ -723,12 +732,14 @@ mod linux {
         /// The remaining FDs are numbered SD_LISTEN_FDS_START + n where
         /// SD_LISTEN_FDS_START is defined as 3 in <systemd/sd-daemon.h>.
         ///
-        /// Only sockets of type AF_INET UDP and AF_INET TCP, whose address can
-        /// be determined, will be captured by this function. Other socket file
-        /// descriptors will be ignored.
+        /// Only sockets of type AF_INET UDP and AF_INET TCP, whose address
+        /// can be determined, will be captured by this function. Other
+        /// socket file descriptors will be ignored.
         ///
         /// [`sd_listen_fds()`]: https://www.man7.org/linux/man-pages/man3/sd_listen_fds.3.html#NOTES
-        pub fn init_from_env(&mut self, max_fds_to_process: Option<usize>) -> Result<(), EnvSocketsError> {
+        pub fn init_from_env(
+            &mut self, max_fds_to_process: Option<usize>
+        ) -> Result<(), EnvSocketsError> {
             if self.initialized {
                 return Err(EnvSocketsError::AlreadyInitialized);
             }
@@ -736,7 +747,10 @@ mod linux {
             let own_pid = nix::unistd::Pid::this().as_raw().to_string();
             let var_pid = std::env::var("LISTEN_PID")?;
 
-            log::debug!("Checking systemd LISTEN_PID env var: our PID={own_pid}, LISTEN_PID={var_pid:?}");
+            log::debug!(
+                "Checking systemd LISTEN_PID env var: our PID={own_pid}, \
+                 LISTEN_PID={var_pid:?}"
+            );
 
             if own_pid != var_pid {
                 return Err(EnvSocketsError::NotForUs);
@@ -744,10 +758,18 @@ mod linux {
 
             let var_fds = std::env::var("LISTEN_FDS")?;
 
-            log::debug!("Checking systemd LISTEN_FDS env var: LISTEN_FDS={var_fds:?}");
-            let mut num_fds = var_fds.parse::<usize>().map_err(|_| EnvSocketsError::Malformed)?;
+            log::debug!(
+                "Checking systemd LISTEN_FDS env var: \
+                LISTEN_FDS={var_fds:?}"
+            );
+            let mut num_fds = var_fds.parse::<usize>().map_err(|_| {
+                EnvSocketsError::Malformed
+            })?;
 
-            log::debug!("Received {num_fds} socket file descriptors via the systemd LISTEN_FDS env var.");
+            log::debug!(
+                "Received {num_fds} socket file descriptors via the \
+                 systemd LISTEN_FDS env var."
+            );
             if let Some(max) = max_fds_to_process {
                 num_fds = num_fds.clamp(0, max);
             }
@@ -757,11 +779,17 @@ mod linux {
             // Here we do arithmetic with file descriptors, because
             // this is how the env var protocol for passing sockets is
             // defined as FDs are actually just integer values.
-            for fd in SD_LISTEN_FDS_START..SD_LISTEN_FDS_START + (num_fds as RawFd) {
+            for fd in
+                SD_LISTEN_FDS_START..SD_LISTEN_FDS_START + (num_fds as RawFd)
+            {
                 let socket_info = SocketInfo::from_fd(fd)?;
 
-                log::trace!("Received socket file descriptor {} via systemd LISTEN_FDS env var: type={}, address={}",
-                    socket_info.raw_fd, socket_info.socket_type, socket_info.socket_addr);
+                log::trace!(
+                    "Received socket file descriptor {} via systemd \
+                     LISTEN_FDS env var: type={}, address={}",
+                    socket_info.raw_fd, socket_info.socket_type,
+                    socket_info.socket_addr
+                );
                 self.fds.push(socket_info);
             }
 
@@ -776,7 +804,10 @@ mod linux {
         /// This function is only safe to call in a single threaded context
         /// as it calls [`std::env::remove_var()`].
         pub fn clear_env() {
-            log::trace!("Unsetting systemd LISTEN_PID and LISTEN_FDS environment variables.");
+            log::trace!(
+                "Unsetting systemd LISTEN_PID and LISTEN_FDS environment \
+                variables."
+            );
             std::env::remove_var("LISTEN_PID");
             std::env::remove_var("LISTEN_FDS");
         }
@@ -793,9 +824,9 @@ mod linux {
         ///
         /// Returns true if so, false otherwise.
         pub fn has_udp(&self, addr: &SocketAddr) -> bool {
-            self.fds
-                .iter()
-                .any(|v| v.socket_type == SocketType::Udp && v.socket_addr == *addr)
+            self.fds.iter().any(|v| {
+                v.socket_type == SocketType::Udp && v.socket_addr == *addr
+            })
         }
 
         /// Did the environment contain a TCP socket descriptor for
@@ -803,9 +834,9 @@ mod linux {
         ///
         /// Returns true if so, false otherwise.
         pub fn has_tcp(&self, addr: &SocketAddr) -> bool {
-            self.fds
-                .iter()
-                .any(|v| v.socket_type == SocketType::Tcp && v.socket_addr == *addr)
+            self.fds.iter().any(|v| {
+                v.socket_type == SocketType::Tcp && v.socket_addr == *addr
+            })
         }
 
         /// Returns a UDP socket that is bound to the specified local address,
@@ -817,7 +848,9 @@ mod linux {
         ///
         /// Subsequent attempts to remove the same UDP socket, or any other
         /// non-existing socket, will return None.
-        pub fn take_udp(&mut self, local_addr: &SocketAddr) -> Option<UdpSocket> {
+        pub fn take_udp(
+            &mut self, local_addr: &SocketAddr
+        ) -> Option<UdpSocket> {
             self.remove(SocketType::Udp, local_addr)
         }
 
@@ -840,7 +873,9 @@ mod linux {
         ///
         /// Subsequent attempts to remove the same TCP socket, or any other
         /// non-existing socket, will return None.
-        pub fn take_tcp(&mut self, local_addr: &SocketAddr) -> Option<TcpListener> {
+        pub fn take_tcp(
+            &mut self, local_addr: &SocketAddr
+        ) -> Option<TcpListener> {
             self.remove(SocketType::Tcp, local_addr)
         }
 
@@ -867,7 +902,9 @@ mod linux {
         ///
         /// Subsequent attempts to remove the same TCP socket, or any other
         /// non-existing socket, will return None.
-        fn remove<T: std::fmt::Debug + FromRawFd>(&mut self, ty: SocketType, addr: &SocketAddr) -> Option<T> {
+        fn remove<T: std::fmt::Debug + FromRawFd>(
+            &mut self, ty: SocketType, addr: &SocketAddr
+        ) -> Option<T> {
             let res = self.fds
                 .iter()
                 .position(|v| v.socket_type == ty && v.socket_addr == *addr)
@@ -882,7 +919,9 @@ mod linux {
         /// If found, removes the file descriptor from the collection, sets
         /// the FD_CLOEXEC flag on the file descriptor and returns it as the
         /// Rust type Some(UdpSocket).
-        fn pop<T: std::fmt::Debug + FromRawFd>(&mut self, ty: SocketType) -> Option<T> {
+        fn pop<T: std::fmt::Debug + FromRawFd>(
+            &mut self, ty: SocketType
+        ) -> Option<T> {
             let res = self.fds
                 .iter()
                 .position(|v| v.socket_type == ty)
@@ -908,7 +947,9 @@ mod linux {
 
     impl SocketInfo {
         /// Creates a new [`SocketInfo`] instance.
-        fn new(socket_type: SocketType, socket_addr: SocketAddr, raw_fd: RawFd) -> Self {
+        fn new(
+            socket_type: SocketType, socket_addr: SocketAddr, raw_fd: RawFd
+        ) -> Self {
             Self {
                 socket_type,
                 socket_addr,
@@ -924,13 +965,21 @@ mod linux {
         /// Returns Some(T) if the FD_CLOEXEC flag could be set, None
         /// otherwise.
         fn finalize<T: FromRawFd>(self) -> Option<T> {
-            log::trace!("Setting FD_CLOEXEC on systemd LISTEN_FDS received socket file descriptor {}", self.raw_fd);
+            log::trace!(
+                "Setting FD_CLOEXEC on systemd LISTEN_FDS received \
+                 socket file descriptor {}",
+                self.raw_fd
+            );
             match fcntl(self.raw_fd, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)) {
                 Ok(_) => unsafe {
                     return Some(FromRawFd::from_raw_fd(self.raw_fd));
                 }
                 Err(err) => {
-                    log::warn!("Setting FD_CLOEXEC on systemd LISTEN_FDS received socket file descriptor {} failed: {err}", self.raw_fd);
+                    log::warn!(
+                        "Setting FD_CLOEXEC on systemd LISTEN_FDS received \
+                         socket file descriptor {} failed: {err}",
+                        self.raw_fd
+                    );
                 }
             }
             None
@@ -947,8 +996,8 @@ mod linux {
         fn from_fd(fd: i32) -> nix::Result<SocketInfo> {
             // [`getsockname()`]` will fail if the given argument is not "a
             // valid file descriptor" or does not "refer to a socket", so we
-            // don't need to call fstat() to check that the FD is a socket, we
-            // can let getsockname() take care of that for us.
+            // don't need to call fstat() to check that the FD is a socket,
+            // we can let getsockname() take care of that for us.
             //
             // [`getsockname()`]: https://pubs.opengroup.org/onlinepubs/9699919799/functions/getsockname.html#tag_16_219_05
             let sock_addr = getsockname::<SockaddrStorage>(fd)?;
@@ -972,7 +1021,9 @@ mod linux {
                 getsockopt(&borrowed_fd, nix::sys::socket::sockopt::SockType)?
             };
 
-            let sock_addr = to_socket_addr(sock_addr).ok_or(nix::Error::ENOTSOCK)?;
+            let sock_addr = to_socket_addr(
+                sock_addr
+            ).ok_or(nix::Error::ENOTSOCK)?;
 
             let socket_type = match sock_opt {
                 SockType::Datagram => SocketType::Udp,
@@ -1005,9 +1056,12 @@ mod linux {
 
     /// Convert a SockaddrStorage object into SocketAddr, if possible.
     fn to_socket_addr(sock_addr: SockaddrStorage) -> Option<SocketAddr> {
-        let sock_addr: SocketAddr = if let Some(sock_addr) = sock_addr.as_sockaddr_in() {
+        let sock_addr: SocketAddr =
+            if let Some(sock_addr) = sock_addr.as_sockaddr_in()
+        {
             SocketAddrV4::new(sock_addr.ip(), sock_addr.port()).into()
-        } else if let Some(sock_addr) = sock_addr.as_sockaddr_in6() {
+        }
+        else if let Some(sock_addr) = sock_addr.as_sockaddr_in6() {
             SocketAddrV6::new(
                 sock_addr.ip(),
                 sock_addr.port(),
@@ -1149,11 +1203,10 @@ mod not_unix {
 
 #[cfg(not(target_os = "linux"))]
 mod not_linux {
-    //-------- EnvSockets ----------------------------------------------------
-
     use std::net::{SocketAddr, TcpListener, UdpSocket};
-
     use super::EnvSocketsError;
+
+    //-------- EnvSockets ----------------------------------------------------
 
     /// Accces to pre-bound sockets passed via environment variables.
     #[derive(Debug, Default)]
@@ -1165,13 +1218,13 @@ mod not_linux {
         }
 
         /// Capture socket file descriptors from environment variables.
-        pub fn init_from_env(&mut self, _max_fds_to_process: Option<usize>) -> Result<(), EnvSocketsError> {
+        pub fn init_from_env(
+            &mut self, _max_fds_to_process: Option<usize>
+        ) -> Result<(), EnvSocketsError> {
             Ok(())
         }
 
         /// Were socket descriptors passed to us via the environment?
-        /// if !self.fds.is_empty() {
-        /// }return Err(EnvSocketsError::AlreadyInitialized);
         ///
         /// Returns false if not, true otherwise.
         pub fn is_empty(&self) -> bool {
@@ -1226,7 +1279,9 @@ mod not_linux {
         ///
         /// Subsequent attempts to remove the same TCP socket, or any other
         /// non-existing socket, will return None.
-        pub fn take_tcp(&mut self, _addr: &SocketAddr) -> Option<TcpListener> {
+        pub fn take_tcp(
+            &mut self, _addr: &SocketAddr
+        ) -> Option<TcpListener> {
             None
         }
 
