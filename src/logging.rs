@@ -393,6 +393,7 @@ pub struct Args {
 }
 
 impl Args {
+    #[cfg(unix)]
     pub fn is_syslog(&self) -> bool {
         self.syslog
     }
@@ -405,6 +406,7 @@ impl Args {
         self.logfile.as_ref()
     }
 
+    #[cfg(unix)]
     pub fn syslog_facility(&self) -> Option<&unix::FacilityArg> {
         self.syslog_facility.as_ref()
     }
