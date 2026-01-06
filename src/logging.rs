@@ -16,6 +16,7 @@ use crate::error::{ExitError, Failed};
 // instead.
 pub use log::LevelFilter;
 
+#[cfg(unix)]
 pub use syslog::Facility;
 
 //------------ Logger --------------------------------------------------------
