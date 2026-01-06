@@ -1,7 +1,7 @@
 //! Process management.
 
 #[cfg(unix)]
-pub use self::unix::{Args, Config, Process};
+pub use self::unix::{Args, Config, Process, UserId, GroupId};
 
 #[cfg(target_os = "linux")]
 pub use self::linux::EnvSockets;
@@ -491,9 +491,19 @@ mod unix {
             Ok(self)
         }
 
+        pub fn with_user_id(mut self, user_id: UserId) -> Self {
+            self.user = Some(user_id);
+            self
+        }
+
         pub fn with_group(mut self, v: &str) -> Result<Self, String> {
             self.group = Some(GroupId::from_str(v)?);
             Ok(self)
+        }
+
+        pub fn with_group_id(mut self, group_id: GroupId) -> Self {
+            self.group = Some(group_id);
+            self
         }
     }
 
@@ -505,23 +515,23 @@ mod unix {
     pub struct Args {
         /// The file for keep the daemon process's PID in
         #[arg(long, value_name = "PATH")]
-        pid_file: Option<ConfigPath>,
+        pub pid_file: Option<ConfigPath>,
 
         /// The working directory of the daemon process
         #[arg(long, value_name = "PATH")]
-        working_dir: Option<ConfigPath>,
+        pub working_dir: Option<ConfigPath>,
 
         /// Root directory for the daemon process
         #[arg(long, value_name = "PATH")]
-        chroot: Option<ConfigPath>,
+        pub chroot: Option<ConfigPath>,
 
         /// User for the daemon process
         #[arg(long, value_name = "UID")]
-        user: Option<UserId>,
+        pub user: Option<UserId>,
 
         /// Group for the daemon process
         #[arg(long, value_name = "GID")]
-        group: Option<GroupId>,
+        pub group: Option<GroupId>,
     }
 
     impl Args {
@@ -536,7 +546,7 @@ mod unix {
     /// A user ID in configuration.
     #[derive(Clone, Debug, Deserialize, Serialize)]
     #[serde(try_from = "String", into = "String", expecting = "a user name")]
-    struct UserId {
+    pub struct UserId {
         /// The user name.
         ///
         /// This is used for error reporting.
@@ -601,7 +611,7 @@ mod unix {
     /// A user ID in configuration.
     #[derive(Clone, Debug, Deserialize, Serialize)]
     #[serde(try_from = "String", into = "String", expecting = "a user name")]
-    struct GroupId {
+    pub struct GroupId {
         /// The group name.
         name: String,
 

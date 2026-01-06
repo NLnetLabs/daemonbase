@@ -7,12 +7,17 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use clap::ArgAction;
-use log::LevelFilter;
 use log::error;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use crate::config::{ConfigFile, ConfigPath};
 use crate::error::{ExitError, Failed};
 
+// Export LevelFilter for clients that don't use log, e.g. if they use tracing
+// instead.
+pub use log::LevelFilter;
+
+#[cfg(unix)]
+pub use syslog::Facility;
 
 //------------ Logger --------------------------------------------------------
 
@@ -27,6 +32,13 @@ pub struct Logger {
 }
 
 impl Logger {
+    pub fn new(level: LevelFilter, target: Target) -> Self {
+        Self {
+            level,
+            target,
+        }
+    }
+
     /// Initialize logging.
     ///
     /// Initializes the logging system so it can be used before having
@@ -381,11 +393,25 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn to_config(&self) -> Config {
-        Config::from_args(self)
+    #[cfg(unix)]
+    pub fn is_syslog(&self) -> bool {
+        self.syslog
     }
 
-    fn opt_level(&self) -> Option<LevelFilter> {
+    pub fn is_stderr(&self) -> bool {
+        self.stderr
+    }
+
+    pub fn log_file(&self) -> Option<&LogPath> {
+        self.logfile.as_ref()
+    }
+
+    #[cfg(unix)]
+    pub fn syslog_facility(&self) -> Option<&unix::FacilityArg> {
+        self.syslog_facility.as_ref()
+    }
+
+    pub fn opt_level(&self) -> Option<LevelFilter> {
         if self.verbose > 1 {
             Some(LevelFilter::Debug)
         }
@@ -401,6 +427,10 @@ impl Args {
         else {
             None
         }
+    }
+
+    pub fn to_config(&self) -> Config {
+        Config::from_args(self)
     }
 }
 
