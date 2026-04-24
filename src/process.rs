@@ -818,8 +818,10 @@ mod linux {
                 "Unsetting systemd LISTEN_PID and LISTEN_FDS environment \
                 variables."
             );
-            std::env::remove_var("LISTEN_PID");
-            std::env::remove_var("LISTEN_FDS");
+            unsafe {
+                std::env::remove_var("LISTEN_PID");
+                std::env::remove_var("LISTEN_FDS");
+            }
         }
 
         /// Were socket descriptors passed to us via the environment?

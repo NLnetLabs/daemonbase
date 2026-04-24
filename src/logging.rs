@@ -68,7 +68,7 @@ impl Logger {
                 TargetName::File => {
                     match config.log_file.as_ref() {
                         Some(LogPath::Stderr) => Target::Stderr,
-                        Some(LogPath::Path(ref file)) => {
+                        Some(LogPath::Path(file)) => {
                             Target::File(file.clone().into())
                         }
                         None => {
@@ -345,7 +345,7 @@ impl Serialize for LogPath {
     ) -> Result<S::Ok, S::Error> {
         match self {
             Self::Stderr => "-".serialize(serializer),
-            Self::Path(ref path) => path.serialize(serializer),
+            Self::Path(path) => path.serialize(serializer),
         }
     }
 }
@@ -354,7 +354,7 @@ impl fmt::Display for LogPath {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Stderr => f.write_str("-"),
-            Self::Path(ref path) => write!(f, "{}", path.display()),
+            Self::Path(path) => write!(f, "{}", path.display()),
         }
     }
 }
@@ -610,8 +610,8 @@ impl Dispatch {
     fn try_log(&self, record: &log::Record) -> Result<(), io::Error> {
         match self.target().deref_mut() {
             #[cfg(unix)]
-            LogBackend::Syslog(ref mut logger) => logger.log(record),
-            LogBackend::File { ref mut file, .. } => {
+            LogBackend::Syslog(logger) => logger.log(record),
+            LogBackend::File { file, .. } => {
                 writeln!(
                     file, "[{}] [{}] {}",
                     format_timestamp(),
@@ -619,7 +619,7 @@ impl Dispatch {
                     record.args()
                 )
             }
-            LogBackend::Stderr{ ref mut stderr, timestamp } => {
+            LogBackend::Stderr{ stderr, timestamp } => {
                 // We never fail when writing to stderr.
                 if *timestamp {
                     let _ = writeln!(stderr, "[{}] [{}] {}",
@@ -644,7 +644,7 @@ impl Dispatch {
             LogBackend::Syslog(_) => {
                 eprintln!("Logging to syslog failed: {err}. Exiting.");
             }
-            LogBackend::File { ref path, .. } => {
+            LogBackend::File { path, .. } => {
                 eprintln!(
                     "Logging to file {} failed: {}. Exiting.",
                     path.display(),
@@ -662,11 +662,11 @@ impl Dispatch {
     fn flush(&self) {
         match self.target().deref_mut() {
             #[cfg(unix)]
-            LogBackend::Syslog(ref mut logger) => logger.flush(),
-            LogBackend::File { ref mut file, .. } => {
+            LogBackend::Syslog(logger) => logger.flush(),
+            LogBackend::File { file, .. } => {
                 let _ = file.flush();
             }
-            LogBackend::Stderr { ref mut stderr, .. } => {
+            LogBackend::Stderr { stderr, .. } => {
                 let _  = stderr.lock().flush();
             }
         }
@@ -708,9 +708,7 @@ impl Dispatch {
     ///
     /// This method exits the whole process when rotating fails.
     fn rotate(&self) -> Result<(), Failed> {
-        if let LogBackend::File {
-            ref mut file, ref path
-        } = self.target().deref_mut() {
+        if let LogBackend::File { file, path } = self.target().deref_mut() {
             // This tries to open the file. If this fails, it writes a
             // message to both the old file and stderr and then exits.
             *file = match Self::open_log_file(path) {
