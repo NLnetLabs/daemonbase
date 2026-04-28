@@ -18,12 +18,10 @@ pub use self::not_linux::EnvSockets;
 ///
 #[cfg(unix)]
 mod unix {
-    use std::io;
     use std::env::set_current_dir;
     use std::ffi::{CStr, CString};
     use std::fs::{File, OpenOptions};
     use std::io::Write;
-    use std::os::fd::{AsFd, AsRawFd};
     use std::os::unix::fs::OpenOptionsExt;
     use std::path::{Path, PathBuf, StripPrefixError};
     use std::str::FromStr;
@@ -31,7 +29,8 @@ mod unix {
     use nix::fcntl::{open, Flock, FlockArg, OFlag};
     use nix::sys::stat::Mode;
     use nix::sys::stat::umask;
-    use nix::unistd::{chroot, close, dup2, fork, getpid, setsid};
+    use nix::unistd;
+    use nix::unistd::{chroot, close, fork, getpid, setsid};
     use nix::unistd::{Gid, Group, Uid, User};
     use serde::{Deserialize, Serialize};
     use crate::config::{ConfigFile, ConfigPath};
@@ -375,19 +374,19 @@ mod unix {
                 }
             };
 
-            if let Err(err) = dup2(dev_null, io::stdin().as_fd().as_raw_fd()) {
+            if let Err(err) = unistd::dup2_stdin(&dev_null) {
                 error!(
-                    "Fatal: failed to redirect stdio to /dev/null: {err}"
+                    "Fatal: failed to redirect stdin to /dev/null: {err}"
                 );
                 return Err(Failed)
             }
-            if let Err(err) = dup2(dev_null, io::stdout().as_fd().as_raw_fd()) {
+            if let Err(err) = unistd::dup2_stdout(&dev_null) {
                 error!(
                     "Fatal: failed to redirect stdout to /dev/null: {err}"
                 );
                 return Err(Failed)
             }
-            if let Err(err) = dup2(dev_null, io::stderr().as_fd().as_raw_fd()) {
+            if let Err(err) = unistd::dup2_stderr(&dev_null) {
                 error!(
                     "Fatal: failed to redirect stderr to /dev/null: {err}"
                 );
@@ -679,7 +678,7 @@ mod linux {
     use std::net::{
         SocketAddr, SocketAddrV4, SocketAddrV6, TcpListener, UdpSocket
     };
-    use std::os::fd::{BorrowedFd, FromRawFd, RawFd};
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
     use nix::fcntl::{fcntl, FcntlArg, FdFlag};
     use nix::sys::socket::{
         getsockname, getsockopt, SockType, SockaddrStorage
@@ -797,7 +796,7 @@ mod linux {
                 log::trace!(
                     "Received socket file descriptor {} via systemd \
                      LISTEN_FDS env var: type={}, address={}",
-                    socket_info.raw_fd, socket_info.socket_type,
+                    socket_info.fd.as_raw_fd(), socket_info.socket_type,
                     socket_info.socket_addr
                 );
                 self.fds.push(socket_info);
@@ -914,7 +913,7 @@ mod linux {
         ///
         /// Subsequent attempts to remove the same TCP socket, or any other
         /// non-existing socket, will return None.
-        fn remove<T: std::fmt::Debug + FromRawFd>(
+        fn remove<T: std::fmt::Debug + From<OwnedFd>>(
             &mut self, ty: SocketType, addr: &SocketAddr
         ) -> Option<T> {
             let res = self.fds
@@ -931,7 +930,7 @@ mod linux {
         /// If found, removes the file descriptor from the collection, sets
         /// the FD_CLOEXEC flag on the file descriptor and returns it as the
         /// Rust type Some(UdpSocket).
-        fn pop<T: std::fmt::Debug + FromRawFd>(
+        fn pop<T: std::fmt::Debug + From<OwnedFd>>(
             &mut self, ty: SocketType
         ) -> Option<T> {
             let res = self.fds
@@ -954,18 +953,18 @@ mod linux {
         pub socket_addr: SocketAddr,
 
         /// The underlying socket file descriptor.
-        pub raw_fd: RawFd,
+        pub fd: OwnedFd,
     }
 
     impl SocketInfo {
         /// Creates a new [`SocketInfo`] instance.
         fn new(
-            socket_type: SocketType, socket_addr: SocketAddr, raw_fd: RawFd
+            socket_type: SocketType, socket_addr: SocketAddr, fd: OwnedFd
         ) -> Self {
             Self {
                 socket_type,
                 socket_addr,
-                raw_fd,
+                fd,
             }
         }
 
@@ -976,25 +975,23 @@ mod linux {
         ///
         /// Returns Some(T) if the FD_CLOEXEC flag could be set, None
         /// otherwise.
-        fn finalize<T: FromRawFd>(self) -> Option<T> {
+        fn finalize<T: From<OwnedFd>>(self) -> Option<T> {
             log::trace!(
                 "Setting FD_CLOEXEC on systemd LISTEN_FDS received \
                  socket file descriptor {}",
-                self.raw_fd
+                self.fd.as_raw_fd()
             );
-            match fcntl(self.raw_fd, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)) {
-                Ok(_) => unsafe {
-                    return Some(FromRawFd::from_raw_fd(self.raw_fd));
-                }
-                Err(err) => {
-                    log::warn!(
-                        "Setting FD_CLOEXEC on systemd LISTEN_FDS received \
-                         socket file descriptor {} failed: {err}",
-                        self.raw_fd
-                    );
-                }
+            if let Err(err) = fcntl(
+                &self.fd, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)
+            ) {
+                log::warn!(
+                    "Setting FD_CLOEXEC on systemd LISTEN_FDS received \
+                     socket file descriptor {} failed: {err}",
+                    self.fd.as_raw_fd(),
+                );
+                return None
             }
-            None
+            Some(self.fd.into())
         }
 
         /// Wrap a socket file descriptor into a SocketInfo instance,
@@ -1005,37 +1002,38 @@ mod linux {
         ///   - Have an address.
         ///
         /// Returns Some(SocketInfo) on success, None otherwise.
-        fn from_fd(fd: i32) -> nix::Result<SocketInfo> {
+        fn from_fd(fd: i32) -> Result<SocketInfo, nix::Error> {
+            // If the fd is -1, converting it into an owned fd below will
+            // panic. So let’s check already here.
+            if fd == -1 {
+                return Err(nix::Error::ENOTSOCK);
+            }
+
             // [`getsockname()`]` will fail if the given argument is not "a
             // valid file descriptor" or does not "refer to a socket", so we
             // don't need to call fstat() to check that the FD is a socket,
             // we can let getsockname() take care of that for us.
             //
+            // The conversion into a socket addr makes sure we only have an
+            // IPv4 or an IPv6 socket.
+            //
             // [`getsockname()`]: https://pubs.opengroup.org/onlinepubs/9699919799/functions/getsockname.html#tag_16_219_05
-            let sock_addr = getsockname::<SockaddrStorage>(fd)?;
-
-            if fd == -1 {
-                // Well this shouldn't happen, but we have to check for it
-                // because borrow_raw() below assumes this isn't the case.
-                return Err(nix::Error::ENOTSOCK);
-            }
-
-            // SAFETY: Only the call to borrow_raw() is unsafe, and only if:
-            //   - fd is -1, but we check for that above.
-            //   - the fd is closed hwile the BorrowedFd is held, but
-            //     getsockopt() won't close it, and we drop the BorrowedFd
-            //     immediately after the call to getsoctopt() at the end of
-            //     the block. However, we can't do anything about some other
-            //     external actor closing the FD during this unsafe block...
-            //     we've done the best we can.
-            let sock_opt = unsafe {
-                let borrowed_fd = BorrowedFd::borrow_raw(fd);
-                getsockopt(&borrowed_fd, nix::sys::socket::sockopt::SockType)?
-            };
-
             let sock_addr = to_socket_addr(
-                sock_addr
-            ).ok_or(nix::Error::ENOTSOCK)?;
+                getsockname::<SockaddrStorage>(fd)?
+            )?;
+
+            // Safety: The conversion from a raw fd is safe if:
+            //   - the fd is open and suitable for assuming ownership. The
+            //     call to getsockname above should have failed if it isn’t.
+            //   - the fd does not require any cleanup other than close.
+            //     The call to getsockname above establishes that the fd is
+            //     for a socket, so closing it is all that needs to be done.
+            //   - the fd is not -1. We checked for that.
+            let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+            
+            let sock_opt = getsockopt(
+                &fd, nix::sys::socket::sockopt::SockType
+            )?;
 
             let socket_type = match sock_opt {
                 SockType::Datagram => SocketType::Udp,
@@ -1067,24 +1065,23 @@ mod linux {
     }
 
     /// Convert a SockaddrStorage object into SocketAddr, if possible.
-    fn to_socket_addr(sock_addr: SockaddrStorage) -> Option<SocketAddr> {
-        let sock_addr: SocketAddr =
-            if let Some(sock_addr) = sock_addr.as_sockaddr_in()
-        {
-            SocketAddrV4::new(sock_addr.ip(), sock_addr.port()).into()
+    fn to_socket_addr(
+        sock_addr: SockaddrStorage
+    ) -> Result<SocketAddr, nix::Error> {
+        if let Some(sock_addr) = sock_addr.as_sockaddr_in() {
+            Ok(SocketAddrV4::new(sock_addr.ip(), sock_addr.port()).into())
         }
         else if let Some(sock_addr) = sock_addr.as_sockaddr_in6() {
-            SocketAddrV6::new(
+            Ok(SocketAddrV6::new(
                 sock_addr.ip(),
                 sock_addr.port(),
                 sock_addr.flowinfo(),
                 sock_addr.scope_id(),
-            )
-            .into()
-        } else {
-            return None;
-        };
-        Some(sock_addr)
+            ).into())
+        }
+        else {
+            Err(nix::Error::ENOTSOCK)
+        }
     }
 }
 
