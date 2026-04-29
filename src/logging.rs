@@ -979,23 +979,7 @@ impl log::Log for GlobalLogger {
 
 //------------ Formatting dates ----------------------------------------------
 
+/// Format the current local time as `9999-12-31T23:59:59`.
 pub fn format_timestamp() -> impl fmt::Display {
-    use chrono::Local;
-    use chrono::format::{Item, Numeric, Pad};
-
-    const LOCAL_ISO_DATE: &[Item<'static>] = &[
-        Item::Numeric(Numeric::Year, Pad::Zero),
-        Item::Literal("-"),
-        Item::Numeric(Numeric::Month, Pad::Zero),
-        Item::Literal("-"),
-        Item::Numeric(Numeric::Day, Pad::Zero),
-        Item::Literal("T"),
-        Item::Numeric(Numeric::Hour, Pad::Zero),
-        Item::Literal(":"),
-        Item::Numeric(Numeric::Minute, Pad::Zero),
-        Item::Literal(":"),
-        Item::Numeric(Numeric::Second, Pad::Zero),
-    ];
-
-    Local::now().format_with_items(LOCAL_ISO_DATE.iter())
+    jiff::Zoned::now().strftime("%Y-%m-%dT%H:%M:%S")
 }
