@@ -679,25 +679,27 @@ mod linux {
     impl EnvSockets {
         /// Create an empty instance.
         ///
-        /// This is useful to have in case the call to [`init_from_env()`]
-        /// fails but you still want to use the [`EnvSockets`] instance as if
-        /// [`init_from_env()`] had succeeded.
+        /// This is useful to have in case the call to
+        /// [`Self::init_from_env()`] fails but you still want to use the
+        /// [`EnvSockets`] instance as if [`Self::init_from_env()`] had
+        /// succeeded.
         pub fn new() -> Self {
             Default::default()
         }
 
         /// Capture socket file descriptors from environment variables.
         ///
-        /// Uses the following environment variables per [`sd_listen_fds()``]:
-        ///   - LISTEN_PID: Must match our own PID.
-        ///   - LISTEN_FDS: The number of FDs being passed to the application.
+        /// Uses the following environment variables per [`sd_listen_fds()`]:
+        /// - `LISTEN_PID`: Must match our own PID.
+        /// - `LISTEN_FDS`: The number of FDs being passed to the application.
         ///
-        /// The remaining FDs are numbered SD_LISTEN_FDS_START + n where
-        /// SD_LISTEN_FDS_START is defined as 3 in <systemd/sd-daemon.h>.
+        /// The remaining FDs are numbered `SD_LISTEN_FDS_START
+        /// + n` where `SD_LISTEN_FDS_START` is defined as `3` in
+        /// `<systemd/sd-daemon.h>`.
         ///
-        /// Only sockets of type AF_INET UDP and AF_INET TCP, whose address
-        /// can be determined, will be captured by this function. Other
-        /// socket file descriptors will be ignored.
+        /// Only sockets of type `AF_INET` `UDP` and `AF_INET` `TCP`, whose
+        /// address can be determined, will be captured by this function.
+        /// Other socket file descriptors will be ignored.
         ///
         /// [`sd_listen_fds()`]: https://www.man7.org/linux/man-pages/man3/sd_listen_fds.3.html#NOTES
         pub fn init_from_env(
@@ -759,10 +761,9 @@ mod linux {
             Ok(())
         }
 
-        /// Unset the LISTEN_PID and LISTEN_FDS environment variables.
+        /// Unset the `LISTEN_PID` and `LISTEN_FDS` environment variables.
         ///
-        /// Safety:
-        /// =======
+        /// ## Safety
         ///
         /// This function is only safe to call in a single threaded context
         /// as it calls [`std::env::remove_var()`].
