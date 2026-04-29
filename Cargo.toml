@@ -1,15 +1,17 @@
 [package]
 name = "daemonbase"
-version = "0.1.4"
-edition = "2024"
-rust-version = "1.87"
-authors = ["NLnet Labs <rust-team@nlnetlabs.nl>"]
 description = "A library for providing the foundation for daemon processes."
+authors = ["NLnet Labs <rust-team@nlnetlabs.nl>"]
+
+version = "0.1.4"
+rust-version = "1.87"
+edition = "2024"
+
 documentation = "https://docs.rs/daemonbase/"
 homepage = "https://github.com/nlnetlabs/daemonbase/"
 repository = "https://github.com/NLnetLabs/daemonbase^"
-keywords = ["daemon", "logging", "system-service" ]
-categories = [ "config" ]
+keywords = ["daemon", "logging", "system-service"]
+categories = ["config"]
 license = "BSD-3-Clause"
 
 [dependencies]
