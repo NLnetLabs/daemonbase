@@ -1016,9 +1016,11 @@ mod linux {
 
     /// Convert a SockaddrStorage object into SocketAddr, if possible.
     fn to_socket_addr(sock_addr: SockaddrStorage) -> Option<SocketAddr> {
-        let sock_addr: SocketAddr = if let Some(sock_addr) = sock_addr.as_sockaddr_in() {
-            SocketAddrV4::new(sock_addr.ip(), sock_addr.port()).into()
-        } else if let Some(sock_addr) = sock_addr.as_sockaddr_in6() {
+        let v4 = sock_addr
+            .as_sockaddr_in()
+            .map(|sock_addr| SocketAddrV4::new(sock_addr.ip(), sock_addr.port()).into());
+
+        let v6 = sock_addr.as_sockaddr_in6().map(|sock_addr| {
             SocketAddrV6::new(
                 sock_addr.ip(),
                 sock_addr.port(),
@@ -1026,10 +1028,9 @@ mod linux {
                 sock_addr.scope_id(),
             )
             .into()
-        } else {
-            return None;
-        };
-        Some(sock_addr)
+        });
+
+        v4.or(v6)
     }
 }
 
