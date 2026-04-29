@@ -156,7 +156,7 @@ jobs:
         # Cargo deosn't have an option to select the right features for us.
         # See: https://github.com/rust-lang/cargo/issues/4663
         cargo metadata --no-deps --format-version 1 \
-        | jq -r '.packages[].targets[]|select(.kind|any(.=="example"))|{name,features:(.["required-features"]|join(","))}|"\(.name) \(.features)"' \
+        | jq -r '.packages[].targets[]|select(.kind|any(.=="example"))|{name,features:(.["required-features"]+[]|join(","))}|"\(.name) \(.features)"' \
         | while read -r name features; do
           cargo check --example=$name --no-default-features --features=$features
         done
