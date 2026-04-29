@@ -1,7 +1,7 @@
 //! Process management.
 
 #[cfg(unix)]
-pub use self::unix::{Args, Config, Process, UserId, GroupId};
+pub use self::unix::{Args, Config, GroupId, Process, UserId};
 
 #[cfg(target_os = "linux")]
 pub use self::linux::EnvSockets;
@@ -18,25 +18,24 @@ pub use self::not_linux::EnvSockets;
 ///
 #[cfg(unix)]
 mod unix {
-    use std::io;
+    use crate::config::{ConfigFile, ConfigPath};
+    use crate::error::Failed;
+    use log::error;
+    use nix::fcntl::{Flock, FlockArg, OFlag, open};
+    use nix::sys::stat::Mode;
+    use nix::sys::stat::umask;
+    use nix::unistd::{Gid, Group, Uid, User};
+    use nix::unistd::{chroot, close, dup2, fork, getpid, setsid};
+    use serde::{Deserialize, Serialize};
     use std::env::set_current_dir;
     use std::ffi::{CStr, CString};
     use std::fs::{File, OpenOptions};
+    use std::io;
     use std::io::Write;
     use std::os::fd::{AsFd, AsRawFd};
     use std::os::unix::fs::OpenOptionsExt;
     use std::path::{Path, PathBuf, StripPrefixError};
     use std::str::FromStr;
-    use log::error;
-    use nix::fcntl::{open, Flock, FlockArg, OFlag};
-    use nix::sys::stat::Mode;
-    use nix::sys::stat::umask;
-    use nix::unistd::{chroot, close, dup2, fork, getpid, setsid};
-    use nix::unistd::{Gid, Group, Uid, User};
-    use serde::{Deserialize, Serialize};
-    use crate::config::{ConfigFile, ConfigPath};
-    use crate::error::Failed;
-
 
     //-------- Process -------------------------------------------------------
 
@@ -51,7 +50,10 @@ mod unix {
     impl Process {
         /// Creates the process from a config struct.
         pub fn from_config(config: Config) -> Self {
-            Self { config, pid_file: None }
+            Self {
+                config,
+                pid_file: None,
+            }
         }
 
         /// Adjusts a path for use after dropping privileges.
@@ -62,15 +64,10 @@ mod unix {
         ///
         /// The method returns an error if the path is outside of what’s
         /// accessible to the process after dropping privileges.
-        pub fn adjust_path(
-            &self, path: PathBuf
-        ) -> Result<PathBuf, StripPrefixError> {
+        pub fn adjust_path(&self, path: PathBuf) -> Result<PathBuf, StripPrefixError> {
             if let Some(chroot) = self.config.chroot.as_ref() {
-                Ok(Path::new("/").join(
-                    path.strip_prefix(chroot)?
-                ))
-            }
-            else {
+                Ok(Path::new("/").join(path.strip_prefix(chroot)?))
+            } else {
                 Ok(path)
             }
         }
@@ -91,11 +88,9 @@ mod unix {
         /// method, it uses the logging facilities for any diagnostic output.
         /// You should therefore have set up your logging system prior to
         /// calling this method.
-        pub fn setup_daemon(
-            &mut self, background: bool
-        ) -> Result<(), Failed> {
+        pub fn setup_daemon(&mut self, background: bool) -> Result<(), Failed> {
             self.create_pid_file()?;
-            
+
             if background {
                 // Fork to detach from terminal.
                 self.perform_fork()?;
@@ -103,7 +98,7 @@ mod unix {
                 // Create a new session.
                 if let Err(err) = setsid() {
                     error!("Fatal: failed to crates new session: {err}");
-                    return Err(Failed)
+                    return Err(Failed);
                 }
 
                 // Fork again to stop being the session leader so we can’t
@@ -121,8 +116,7 @@ mod unix {
 
                 // Redirect the three standard streams to /dev/null.
                 self.redirect_stdio()?;
-            }
-            else {
+            } else {
                 self.change_working_dir(false)?;
             }
 
@@ -130,7 +124,6 @@ mod unix {
 
             Ok(())
         }
-
 
         /// Drops privileges.
         ///
@@ -140,10 +133,8 @@ mod unix {
         pub fn drop_privileges(&mut self) -> Result<(), Failed> {
             if let Some(path) = self.config.chroot.as_ref() {
                 if let Err(err) = chroot(path.as_path()) {
-                    error!("Fatal: cannot chroot to '{}': {}'",
-                        path.display(), err
-                    );
-                    return Err(Failed)
+                    error!("Fatal: cannot chroot to '{}': {}'", path.display(), err);
+                    return Err(Failed);
                 }
             }
 
@@ -169,17 +160,13 @@ mod unix {
 
             /// Dummy fallback function for `nix::unistd::initgroups`.
             #[allow(dead_code)]
-            fn initgroups(
-                _user: &CStr, _group: Gid
-            ) -> Result<(), nix::errno::Errno> {
+            fn initgroups(_user: &CStr, _group: Gid) -> Result<(), nix::errno::Errno> {
                 Ok(())
             }
 
             /// Fallback function for `nix::unistd::setresgid`.
             #[allow(dead_code)]
-            fn setresgid(
-                rgid: Gid, egid: Gid, _sgid: Gid
-            ) -> Result<(), nix::errno::Errno> {
+            fn setresgid(rgid: Gid, egid: Gid, _sgid: Gid) -> Result<(), nix::errno::Errno> {
                 use nix::libc::{c_int, gid_t};
 
                 #[allow(dead_code)]
@@ -201,9 +188,7 @@ mod unix {
 
             /// Fallback function for `nix::unistd::setresuid`.
             #[allow(dead_code)]
-            fn setresuid(
-                ruid: Uid, euid: Uid, _suid: Uid
-            ) -> Result<(), nix::errno::Errno> {
+            fn setresuid(ruid: Uid, euid: Uid, _suid: Uid) -> Result<(), nix::errno::Errno> {
                 use nix::libc::{c_int, uid_t};
 
                 #[allow(dead_code)]
@@ -224,15 +209,16 @@ mod unix {
             }
 
             let Some(user) = self.config.user.as_ref() else {
-                return Ok(())
+                return Ok(());
             };
 
             // If we don’t have an explicit group, we use the user’s group.
-            let gid = self.config.group.as_ref().map(|g| {
-                g.gid
-            }).unwrap_or_else(|| {
-                user.gid
-            });
+            let gid = self
+                .config
+                .group
+                .as_ref()
+                .map(|g| g.gid)
+                .unwrap_or_else(|| user.gid);
 
             // Let the system load the supplemental groups for the user.
             {
@@ -240,9 +226,7 @@ mod unix {
                 use nix::unistd::*;
 
                 initgroups(&user.c_name, gid).map_err(|err| {
-                    error!(
-                        "failed to initialize the group access list: {err}",
-                    );
+                    error!("failed to initialize the group access list: {err}",);
                     Failed
                 })?;
             }
@@ -253,9 +237,7 @@ mod unix {
                 use nix::unistd::*;
 
                 setresgid(gid, gid, gid).map_err(|err| {
-                    error!(
-                        "failed to set group ID: {err}"
-                    );
+                    error!("failed to set group ID: {err}");
                     Failed
                 })?;
             }
@@ -266,9 +248,7 @@ mod unix {
                 use nix::unistd::*;
 
                 setresuid(user.uid, user.uid, user.uid).map_err(|err| {
-                    error!(
-                        "failed to set user ID: {err}"
-                    );
+                    error!("failed to set user ID: {err}");
                     Failed
                 })?;
             }
@@ -280,32 +260,32 @@ mod unix {
         fn create_pid_file(&mut self) -> Result<(), Failed> {
             let path = match self.config.pid_file.as_ref() {
                 Some(path) => path,
-                None => return Ok(())
+                None => return Ok(()),
             };
 
             let file = OpenOptions::new()
-                .read(false).write(true)
-                .create(true).truncate(true)
+                .read(false)
+                .write(true)
+                .create(true)
+                .truncate(true)
                 .mode(0o666)
                 .open(path);
             let file = match file {
                 Ok(file) => file,
                 Err(err) => {
-                    error!("Fatal: failed to create PID file {}: {}",
-                        path.display(), err
+                    error!(
+                        "Fatal: failed to create PID file {}: {}",
+                        path.display(),
+                        err
                     );
-                    return Err(Failed)
+                    return Err(Failed);
                 }
             };
-            let file = match Flock::lock(
-                file, FlockArg::LockExclusiveNonblock
-            ) {
+            let file = match Flock::lock(file, FlockArg::LockExclusiveNonblock) {
                 Ok(file) => file,
                 Err((_, err)) => {
-                    error!("Fatal: cannot lock PID file {}: {}",
-                        path.display(), err
-                    );
-                    return Err(Failed)
+                    error!("Fatal: cannot lock PID file {}: {}", path.display(), err);
+                    return Err(Failed);
                 }
             };
             self.pid_file = Some(file);
@@ -317,10 +297,8 @@ mod unix {
             if let Some(pid_file) = self.pid_file.as_mut() {
                 let pid = format!("{}", getpid());
                 if let Err(err) = pid_file.write_all(pid.as_bytes()) {
-                    error!(
-                        "Fatal: failed to write PID to PID file: {err}"
-                    );
-                    return Err(Failed)
+                    error!("Fatal: failed to write PID to PID file: {err}");
+                    return Err(Failed);
                 }
             }
             Ok(())
@@ -344,18 +322,23 @@ mod unix {
 
         /// Changes the current working directory in necessary.
         fn change_working_dir(&self, background: bool) -> Result<(), Failed> {
-            let mut path = self.config.working_dir.as_ref().or(
-                self.config.chroot.as_ref()
-            ).map(ConfigPath::as_path);
+            let mut path = self
+                .config
+                .working_dir
+                .as_ref()
+                .or(self.config.chroot.as_ref())
+                .map(ConfigPath::as_path);
             if background {
                 path = path.or(Some(Path::new("/")));
             }
             if let Some(path) = path {
                 if let Err(err) = set_current_dir(path) {
-                    error!("Fatal: failed to set working directory {}: {}",
-                        path.display(), err
+                    error!(
+                        "Fatal: failed to set working directory {}: {}",
+                        path.display(),
+                        err
                     );
-                    return Err(Failed)
+                    return Err(Failed);
                 }
             }
 
@@ -364,47 +347,35 @@ mod unix {
 
         /// Changes the stdio streams to /dev/null.
         fn redirect_stdio(&self) -> Result<(), Failed> {
-            let dev_null = match open(
-                "/dev/null", OFlag::O_RDWR,
-                Mode::empty()
-            ) {
+            let dev_null = match open("/dev/null", OFlag::O_RDWR, Mode::empty()) {
                 Ok(fd) => fd,
                 Err(err) => {
                     error!("Fatal: failed to open /dev/null: {err}");
-                    return Err(Failed)
+                    return Err(Failed);
                 }
             };
 
             if let Err(err) = dup2(dev_null, io::stdin().as_fd().as_raw_fd()) {
-                error!(
-                    "Fatal: failed to redirect stdio to /dev/null: {err}"
-                );
-                return Err(Failed)
+                error!("Fatal: failed to redirect stdio to /dev/null: {err}");
+                return Err(Failed);
             }
             if let Err(err) = dup2(dev_null, io::stdout().as_fd().as_raw_fd()) {
-                error!(
-                    "Fatal: failed to redirect stdout to /dev/null: {err}"
-                );
-                return Err(Failed)
+                error!("Fatal: failed to redirect stdout to /dev/null: {err}");
+                return Err(Failed);
             }
             if let Err(err) = dup2(dev_null, io::stderr().as_fd().as_raw_fd()) {
-                error!(
-                    "Fatal: failed to redirect stderr to /dev/null: {err}"
-                );
-                return Err(Failed)
+                error!("Fatal: failed to redirect stderr to /dev/null: {err}");
+                return Err(Failed);
             }
 
             if let Err(err) = close(dev_null) {
-                error!(
-                    "Fatal: failed to close /dev/null: {err}"
-                );
-                return Err(Failed)
+                error!("Fatal: failed to close /dev/null: {err}");
+                return Err(Failed);
             }
 
             Ok(())
         }
     }
-
 
     //-------- Config --------------------------------------------------------
 
@@ -429,9 +400,7 @@ mod unix {
     }
 
     impl Config {
-        pub fn from_config_file(
-            file: &mut ConfigFile
-        ) -> Result<Self, Failed> {
+        pub fn from_config_file(file: &mut ConfigFile) -> Result<Self, Failed> {
             Ok(Config {
                 pid_file: file.take_path("pid-file")?,
                 working_dir: file.take_path("working-dir")?,
@@ -507,7 +476,6 @@ mod unix {
         }
     }
 
-
     //-------- Args ----------------------------------------------------------
 
     #[derive(Clone, Debug, clap::Args)]
@@ -540,7 +508,6 @@ mod unix {
         }
     }
 
-
     //-------- UserId --------------------------------------------------------
 
     /// A user ID in configuration.
@@ -564,7 +531,6 @@ mod unix {
 
         /// The numerical group ID of the user.
         gid: Gid,
-
     }
 
     impl TryFrom<String> for UserId {
@@ -572,21 +538,17 @@ mod unix {
 
         fn try_from(name: String) -> Result<Self, Self::Error> {
             let Ok(c_name) = CString::new(name.clone()) else {
-                return Err(format!("invalid user name '{name}'"))
+                return Err(format!("invalid user name '{name}'"));
             };
             match User::from_name(&name) {
-                Ok(Some(user)) => {
-                    Ok(UserId {
-                        name, c_name,
-                        gid: user.gid, uid: user.uid
-                    })
-                }
-                Ok(None) => {
-                    Err(format!("unknown user '{name}'"))
-                }
-                Err(err) => {
-                    Err(format!("failed to resolve user '{name}': {err}"))
-                }
+                Ok(Some(user)) => Ok(UserId {
+                    name,
+                    c_name,
+                    gid: user.gid,
+                    uid: user.uid,
+                }),
+                Ok(None) => Err(format!("unknown user '{name}'")),
+                Err(err) => Err(format!("failed to resolve user '{name}': {err}")),
             }
         }
     }
@@ -604,7 +566,6 @@ mod unix {
             user.name
         }
     }
-
 
     //-------- GroupId -------------------------------------------------------
 
@@ -624,15 +585,12 @@ mod unix {
 
         fn try_from(name: String) -> Result<Self, Self::Error> {
             match Group::from_name(&name) {
-                Ok(Some(group)) => {
-                    Ok(GroupId { gid: group.gid, name })
-                }
-                Ok(None) => {
-                    Err(format!("unknown group '{name}'"))
-                }
-                Err(err) => {
-                    Err(format!("failed to resolve group '{name}': {err}"))
-                }
+                Ok(Some(group)) => Ok(GroupId {
+                    gid: group.gid,
+                    name,
+                }),
+                Ok(None) => Err(format!("unknown group '{name}'")),
+                Err(err) => Err(format!("failed to resolve group '{name}': {err}")),
             }
         }
     }
@@ -664,8 +622,8 @@ pub enum EnvSocketsError {
     NotForUs,
 
     /// The environment variables were not set.
-    NotAvailable, 
-    
+    NotAvailable,
+
     /// The environment variables were malformed.
     Malformed,
 
@@ -675,17 +633,12 @@ pub enum EnvSocketsError {
 
 #[cfg(target_os = "linux")]
 mod linux {
-    use std::env::VarError;
-    use std::net::{
-        SocketAddr, SocketAddrV4, SocketAddrV6, TcpListener, UdpSocket
-    };
-    use std::os::fd::{BorrowedFd, FromRawFd, RawFd};
-    use nix::fcntl::{fcntl, FcntlArg, FdFlag};
-    use nix::sys::socket::{
-        getsockname, getsockopt, SockType, SockaddrStorage
-    };
     use super::EnvSocketsError;
-
+    use nix::fcntl::{FcntlArg, FdFlag, fcntl};
+    use nix::sys::socket::{SockType, SockaddrStorage, getsockname, getsockopt};
+    use std::env::VarError;
+    use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6, TcpListener, UdpSocket};
+    use std::os::fd::{BorrowedFd, FromRawFd, RawFd};
 
     //-------- Constants -----------------------------------------------------
 
@@ -748,7 +701,8 @@ mod linux {
         ///
         /// [`sd_listen_fds()`]: https://www.man7.org/linux/man-pages/man3/sd_listen_fds.3.html#NOTES
         pub fn init_from_env(
-            &mut self, max_fds_to_process: Option<usize>
+            &mut self,
+            max_fds_to_process: Option<usize>,
         ) -> Result<(), EnvSocketsError> {
             if self.initialized {
                 return Err(EnvSocketsError::AlreadyInitialized);
@@ -772,9 +726,9 @@ mod linux {
                 "Checking systemd LISTEN_FDS env var: \
                 LISTEN_FDS={var_fds:?}"
             );
-            let mut num_fds = var_fds.parse::<usize>().map_err(|_| {
-                EnvSocketsError::Malformed
-            })?;
+            let mut num_fds = var_fds
+                .parse::<usize>()
+                .map_err(|_| EnvSocketsError::Malformed)?;
 
             log::debug!(
                 "Received {num_fds} socket file descriptors via the \
@@ -783,21 +737,20 @@ mod linux {
             if let Some(max) = max_fds_to_process {
                 num_fds = num_fds.clamp(0, max);
             }
-    
+
             self.fds.reserve_exact(num_fds);
-        
+
             // Here we do arithmetic with file descriptors, because
             // this is how the env var protocol for passing sockets is
             // defined as FDs are actually just integer values.
-            for fd in
-                SD_LISTEN_FDS_START..SD_LISTEN_FDS_START + (num_fds as RawFd)
-            {
+            for fd in SD_LISTEN_FDS_START..SD_LISTEN_FDS_START + (num_fds as RawFd) {
                 let socket_info = SocketInfo::from_fd(fd)?;
 
                 log::trace!(
                     "Received socket file descriptor {} via systemd \
                      LISTEN_FDS env var: type={}, address={}",
-                    socket_info.raw_fd, socket_info.socket_type,
+                    socket_info.raw_fd,
+                    socket_info.socket_type,
                     socket_info.socket_addr
                 );
                 self.fds.push(socket_info);
@@ -807,7 +760,7 @@ mod linux {
         }
 
         /// Unset the LISTEN_PID and LISTEN_FDS environment variables.
-        /// 
+        ///
         /// Safety:
         /// =======
         ///
@@ -836,9 +789,9 @@ mod linux {
         ///
         /// Returns true if so, false otherwise.
         pub fn has_udp(&self, addr: &SocketAddr) -> bool {
-            self.fds.iter().any(|v| {
-                v.socket_type == SocketType::Udp && v.socket_addr == *addr
-            })
+            self.fds
+                .iter()
+                .any(|v| v.socket_type == SocketType::Udp && v.socket_addr == *addr)
         }
 
         /// Did the environment contain a TCP socket descriptor for
@@ -846,9 +799,9 @@ mod linux {
         ///
         /// Returns true if so, false otherwise.
         pub fn has_tcp(&self, addr: &SocketAddr) -> bool {
-            self.fds.iter().any(|v| {
-                v.socket_type == SocketType::Tcp && v.socket_addr == *addr
-            })
+            self.fds
+                .iter()
+                .any(|v| v.socket_type == SocketType::Tcp && v.socket_addr == *addr)
         }
 
         /// Returns a UDP socket that is bound to the specified local address,
@@ -860,9 +813,7 @@ mod linux {
         ///
         /// Subsequent attempts to remove the same UDP socket, or any other
         /// non-existing socket, will return None.
-        pub fn take_udp(
-            &mut self, local_addr: &SocketAddr
-        ) -> Option<UdpSocket> {
+        pub fn take_udp(&mut self, local_addr: &SocketAddr) -> Option<UdpSocket> {
             self.remove(SocketType::Udp, local_addr)
         }
 
@@ -885,9 +836,7 @@ mod linux {
         ///
         /// Subsequent attempts to remove the same TCP socket, or any other
         /// non-existing socket, will return None.
-        pub fn take_tcp(
-            &mut self, local_addr: &SocketAddr
-        ) -> Option<TcpListener> {
+        pub fn take_tcp(&mut self, local_addr: &SocketAddr) -> Option<TcpListener> {
             self.remove(SocketType::Tcp, local_addr)
         }
 
@@ -915,9 +864,12 @@ mod linux {
         /// Subsequent attempts to remove the same TCP socket, or any other
         /// non-existing socket, will return None.
         fn remove<T: std::fmt::Debug + FromRawFd>(
-            &mut self, ty: SocketType, addr: &SocketAddr
+            &mut self,
+            ty: SocketType,
+            addr: &SocketAddr,
         ) -> Option<T> {
-            let res = self.fds
+            let res = self
+                .fds
                 .iter()
                 .position(|v| v.socket_type == ty && v.socket_addr == *addr)
                 .and_then(|idx| self.fds.remove(idx).finalize())?;
@@ -931,10 +883,9 @@ mod linux {
         /// If found, removes the file descriptor from the collection, sets
         /// the FD_CLOEXEC flag on the file descriptor and returns it as the
         /// Rust type Some(UdpSocket).
-        fn pop<T: std::fmt::Debug + FromRawFd>(
-            &mut self, ty: SocketType
-        ) -> Option<T> {
-            let res = self.fds
+        fn pop<T: std::fmt::Debug + FromRawFd>(&mut self, ty: SocketType) -> Option<T> {
+            let res = self
+                .fds
                 .iter()
                 .position(|v| v.socket_type == ty)
                 .and_then(|idx| self.fds.remove(idx).finalize())?;
@@ -959,9 +910,7 @@ mod linux {
 
     impl SocketInfo {
         /// Creates a new [`SocketInfo`] instance.
-        fn new(
-            socket_type: SocketType, socket_addr: SocketAddr, raw_fd: RawFd
-        ) -> Self {
+        fn new(socket_type: SocketType, socket_addr: SocketAddr, raw_fd: RawFd) -> Self {
             Self {
                 socket_type,
                 socket_addr,
@@ -985,7 +934,7 @@ mod linux {
             match fcntl(self.raw_fd, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)) {
                 Ok(_) => unsafe {
                     return Some(FromRawFd::from_raw_fd(self.raw_fd));
-                }
+                },
                 Err(err) => {
                     log::warn!(
                         "Setting FD_CLOEXEC on systemd LISTEN_FDS received \
@@ -1033,9 +982,7 @@ mod linux {
                 getsockopt(&borrowed_fd, nix::sys::socket::sockopt::SockType)?
             };
 
-            let sock_addr = to_socket_addr(
-                sock_addr
-            ).ok_or(nix::Error::ENOTSOCK)?;
+            let sock_addr = to_socket_addr(sock_addr).ok_or(nix::Error::ENOTSOCK)?;
 
             let socket_type = match sock_opt {
                 SockType::Datagram => SocketType::Udp,
@@ -1068,12 +1015,9 @@ mod linux {
 
     /// Convert a SockaddrStorage object into SocketAddr, if possible.
     fn to_socket_addr(sock_addr: SockaddrStorage) -> Option<SocketAddr> {
-        let sock_addr: SocketAddr =
-            if let Some(sock_addr) = sock_addr.as_sockaddr_in()
-        {
+        let sock_addr: SocketAddr = if let Some(sock_addr) = sock_addr.as_sockaddr_in() {
             SocketAddrV4::new(sock_addr.ip(), sock_addr.port()).into()
-        }
-        else if let Some(sock_addr) = sock_addr.as_sockaddr_in6() {
+        } else if let Some(sock_addr) = sock_addr.as_sockaddr_in6() {
             SocketAddrV6::new(
                 sock_addr.ip(),
                 sock_addr.port(),
@@ -1094,10 +1038,10 @@ mod linux {
 ///
 #[cfg(not(unix))]
 mod not_unix {
-    use std::path::{PathBuf, StripPrefixError};
-    use serde::{Deserialize, Serialize};
     use crate::config::{ConfigFile, ConfigPath};
     use crate::error::Failed;
+    use serde::{Deserialize, Serialize};
+    use std::path::{PathBuf, StripPrefixError};
 
     //-------- Process -------------------------------------------------------
 
@@ -1118,9 +1062,7 @@ mod not_unix {
         ///
         /// The method returns an error if the path is outside of what’s
         /// accessible to the process after dropping privileges.
-        pub fn adjust_path(
-            &self, path: PathBuf
-        ) -> Result<PathBuf, StripPrefixError> {
+        pub fn adjust_path(&self, path: PathBuf) -> Result<PathBuf, StripPrefixError> {
             Ok(path)
         }
 
@@ -1136,9 +1078,7 @@ mod not_unix {
         /// method, it uses the logging facilities for any diagnostic output.
         /// You should therefore have set up your logging system prioir to
         /// calling this method.
-        pub fn setup_daemon(
-            &mut self, background: bool
-        ) -> Result<(), Failed> {
+        pub fn setup_daemon(&mut self, background: bool) -> Result<(), Failed> {
             let _ = background;
             Ok(())
         }
@@ -1153,7 +1093,6 @@ mod not_unix {
         }
     }
 
-
     //-------- Config --------------------------------------------------------
 
     #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -1161,9 +1100,7 @@ mod not_unix {
 
     impl Config {
         /// Creates the proces from a config file.
-        pub fn from_config_file(
-            file: &mut ConfigFile
-        ) -> Result<Self, Failed> {
+        pub fn from_config_file(file: &mut ConfigFile) -> Result<Self, Failed> {
             let _ = file;
             Ok(Self)
         }
@@ -1215,8 +1152,8 @@ mod not_unix {
 
 #[cfg(not(target_os = "linux"))]
 mod not_linux {
-    use std::net::{SocketAddr, TcpListener, UdpSocket};
     use super::EnvSocketsError;
+    use std::net::{SocketAddr, TcpListener, UdpSocket};
 
     //-------- EnvSockets ----------------------------------------------------
 
@@ -1231,7 +1168,8 @@ mod not_linux {
 
         /// Capture socket file descriptors from environment variables.
         pub fn init_from_env(
-            &mut self, _max_fds_to_process: Option<usize>
+            &mut self,
+            _max_fds_to_process: Option<usize>,
         ) -> Result<(), EnvSocketsError> {
             Ok(())
         }
@@ -1291,9 +1229,7 @@ mod not_linux {
         ///
         /// Subsequent attempts to remove the same TCP socket, or any other
         /// non-existing socket, will return None.
-        pub fn take_tcp(
-            &mut self, _addr: &SocketAddr
-        ) -> Option<TcpListener> {
+        pub fn take_tcp(&mut self, _addr: &SocketAddr) -> Option<TcpListener> {
             None
         }
 

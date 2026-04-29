@@ -1,11 +1,11 @@
 //! Example service that reflects data.
 
 use clap::Parser;
-use daemonbase::{logging, process};
 use daemonbase::error::ExitError;
 use daemonbase::logging::Logger;
 use daemonbase::process::Process;
-use log::{warn};
+use daemonbase::{logging, process};
+use log::warn;
 
 #[derive(Parser)]
 struct Args {
@@ -19,7 +19,6 @@ struct Args {
     #[command(flatten)]
     process: process::Args,
 }
-
 
 fn _main() -> Result<(), ExitError> {
     Logger::init_logging()?;
