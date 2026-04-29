@@ -15,8 +15,8 @@ categories = ["config"]
 license = "BSD-3-Clause"
 
 [dependencies]
-chrono          = "0.4.23"
 clap            = { version = "4", features = [ "derive" ] }
+jiff            = { version = "0.2.15" }
 log             = "0.4.8"
 serde           = { version = "1.0.95", features = [ "derive" ] }
 toml_edit       = "0.23"
