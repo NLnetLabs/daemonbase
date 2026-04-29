@@ -1,40 +1,377 @@
-name: ci
-on: [push, pull_request]
+# ======================================================
+# Continuous Integration: making sure the codebase works
+# ======================================================
+#
+# This workflow tests modifications to 'daemonbase', ensuring that
+# 'daemonbase' can be used by others successfully. It verifies certain aspects
+# of the codebase, such as the formatting and feature flag combinations, and
+# runs the full test suite. It runs on Ubuntu, Mac OS, and Windows.
+
+name: CI
+
+# When the workflow runs
+# ----------------------
+on:
+  # Execute when a pull request is (re-) opened or its head changes (e.g. new
+  # commits are added or the commit history is rewritten) ... but only if
+  # build-related files change.
+  pull_request:
+    paths:
+      - '**.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/ci.yml'
+
+  # If a pull request is merged, at least one commit is added to the target
+  # branch. If the target is another pull request, it will be caught by the
+  # above event. We miss PRs that merge to a non-PR branch, except for the
+  # 'main' branch.
+
+  # Execute when a commit is pushed to 'main' (including merged PRs) or to a
+  # release tag ... but only if build-related files change.
+  push:
+    branches:
+      - 'main'
+      - 'releases/**'
+    paths:
+      - '**.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/ci.yml'
+
+  # Rebuild 'main' every week. This will account for changes to dependencies
+  # and to Rust, either of which can trigger new failures. Rust releases are
+  # every 6 weeks, on a Thursday; this event runs every Friday.
+  schedule:
+    - cron: '0 10 * * FRI'
+
+defaults:
+  run:
+    shell: bash
+
+# Jobs
+# ----------------------------------------------------------------------------
 jobs:
+
+  # Check Formatting
+  # ----------------
+  #
+  # NOTE: This job is run even if no '.rs' files have changed. Inserting such
+  # a check would require using a separate workflow file or using third-party
+  # actions. Most commits do change '.rs' files, and 'cargo-fmt' is pretty
+  # fast, so optimizing this is not necessary.
+  check-fmt:
+    name: Check formatting
+    runs-on: ubuntu-latest
+    steps:
+
+    # Load the repository.
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Set up the Rust toolchain.
+    #
+    # Disable the cache since it's not relevant for formatting.
+    - name: Set up Rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+        components: rustfmt
+        cache: false
+
+    # Do the actual formatting check.
+    - name: Check formatting
+      run: cargo fmt --all -- --check
+
+  # Determine MSRV
+  # --------------
+  #
+  # The MSRV needs to be determined as we will test 'daemonbase' against the
+  # Rust compiler at that version.
+  determine-msrv:
+    name: Determine MSRV
+    runs-on: ubuntu-latest
+    outputs:
+      msrv: ${{ steps.determine-msrv.outputs.msrv }}
+    steps:
+
+    # Load the repository.
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Determine the MSRV.
+    - name: Determine MSRV
+      id: determine-msrv
+      run: |
+        msrv=`cargo metadata --no-deps --format-version 1 | jq -r '.packages[]|select(.name=="daemonbase")|.rust_version'`
+        echo "msrv=$msrv" >> "$GITHUB_OUTPUT"
+
+  # Check Feature Flags
+  # -------------------
+  #
+  # Rust does not provide any way to check that all possible feature flag
+  # combinations will succeed, so we need to try them manually here. We will
+  # assume this choice is not influenced by the OS or Rust version.
+  check-feature-flags:
+    name: Check feature flags
+    runs-on: ubuntu-latest
+    steps:
+
+    # Load the repository.
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Set up the Rust toolchain.
+    - name: Set up Rust
+      id: setup-rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+        cache: false
+
+    # Restore a cache of dependencies and 'target'.
+    - name: Restore a dependency cache
+      id: cache-restore
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          Cargo.cached.lock
+          ~/.cargo
+          target/
+        # Cache by OS and Rust version.
+        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}-
+
+    # Do the actual feature flag checks.
+    #
+    # NOTE: This does not benefit from the 'target' folder cached by a 'cargo
+    # check --all-features --all-targets' execution. Due to the minimal
+    # dependency set, it still runs fairly quickly.
+    - name: Check empty feature set
+      run: cargo check --all-targets --no-default-features
+
+    # Check the required feature flags for every example.
+    - name: Check required features of examples
+      run: |
+        # Scrape crate metadata and construct the right 'check' commands.
+        # Cargo deosn't have an option to select the right features for us.
+        # See: https://github.com/rust-lang/cargo/issues/4663
+        cargo metadata --no-deps --format-version 1 \
+        | jq -r '.packages[].targets[]|select(.kind|any(.=="example"))|{name,features:(.["required-features"]|join(","))}|"\(.name) \(.features)"' \
+        | while read -r name features; do
+          cargo check --example=$name --no-default-features --features=$features
+        done
+
+  # Check Minimal Versions
+  # ----------------------
+  #
+  # Ensure that 'daemonbase' compiles with the oldest compatible versions of
+  # all packages, even those 'daemonbase' depends upon indirectly.
+  check-minimal-versions:
+    name: Check minimal versions
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: "-D warnings"
+    steps:
+
+    # Load the repository.
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Set up the Rust toolchain.
+    - name: Set up Rust nightly
+      id: setup-rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: nightly, stable
+        cache: false
+
+    # TODO: Cache minimal-version dependencies?
+
+    # Lock all dependencies to their minimal versions.
+    - name: Lock dependencies to minimal versions
+      run: cargo +nightly update -Z minimal-versions
+
+    # Check that 'daemonbase' compiles.
+    #
+    # NOTE: This does not benefit from the 'target' folder cached by a 'cargo
+    # check --all-features --all-targets' execution. It may be worthwhile to
+    # cache this 'target' folder separately (TODO).
+    - name: Check
+      run: cargo check --all-targets --all-features --locked
+
+  # Clippy
+  # ------
+  #
+  # We run Clippy separately, and only on nightly Rust because it offers a
+  # superset of the lints.
+  #
+  # 'cargo clippy' and 'cargo build' can share some state for fast execution,
+  # but it's faster to execute them in parallel than to establish an ordering
+  # between them.
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: "-D warnings"
+    steps:
+
+    # Load the repository.
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Set up the Rust toolchain.
+    - name: Set up Rust nightly
+      id: setup-rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: nightly
+        components: clippy
+        cache: false
+
+    # Restore a cache of dependencies and 'target'.
+    - name: Restore from cache
+      id: cache-restore
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          Cargo.cached.lock
+          ~/.cargo
+          target/
+        # Cache by OS and Rust version.
+        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}-
+
+    # Do the actually Clippy run.
+    - name: Check Clippy
+      run: cargo +nightly clippy --all-targets --all-features
+
+  # Test
+  # ----
+  #
+  # Ensure that 'daemonbase' compiles and its test suite passes, on a large
+  # number of operating systems and Rust versions.
   test:
-    name: test
-    runs-on: ${{ matrix.os }}
+    name: Test
+    needs: determine-msrv
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macOS-latest]
-        rust: [1.87.0, stable, beta, nightly]
+        os: [ubuntu-latest, macOS-latest, windows-latest]
+        rust: ["${{ needs.determine-msrv.outputs.msrv }}", stable, nightly]
+    runs-on: ${{ matrix.os }}
+    env:
+      RUSTFLAGS: "-D warnings"
+      # See <https://github.com/actions/runner-images/issues/12432>
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: rust-lld
     steps:
+
+    # Load the repository.
     - name: Checkout repository
-      uses: actions/checkout@v1
-    - name: Install Rust
-      uses: hecrj/setup-rust-action@v1
+      uses: actions/checkout@v4
+
+    # Set up the Rust toolchain.
+    - name: Set up Rust ${{ matrix.rust }}
+      id: setup-rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
-        rust-version: ${{ matrix.rust }}
+        toolchain: ${{ matrix.rust }}
+        cache: false
 
-    # Because of all the features, we run build and test twice -- once with
-    # full features and once without any features at all -- to make it more
-    # likely that everything works.
+    # Restore a cache of dependencies and 'target'.
+    - name: Restore from cache
+      id: cache-restore
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          Cargo.cached.lock
+          ~/.cargo
+          target/
+        # Cache by OS and Rust version.
+        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}-
 
-    # Clippy.
-    #
-    # Only do this once with all features enabled.
-    # Only do Clippy on stable for the moment, due to
-    # clippy::unknown_clippy_lints being removed.
-    - if: matrix.rust == 'stable'
-      run: rustup component add clippy
-    - if: matrix.rust == 'stable'
-      run: cargo clippy --all --tests --examples --all-features -- -D warnings
+    # For MSRV builds, use the cached 'Cargo.lock'.
+    - name: Use the cached Cargo lockfile
+      if: matrix.rust == needs.determine-msrv.outputs.msrv
+      # Remove 'Cargo.lock' even if a cached lockfile is unavailable.
+      run: mv Cargo.cached.lock Cargo.lock || rm Cargo.lock
 
-    # Build
-    - run: cargo build --verbose --all --all-features
-    - run: cargo build --verbose --all --no-default-features
+    # Build and run the test suite.
+    - name: Test
+      run: cargo test --all-targets --all-features
 
-    # Test
-    - run: cargo test --verbose --all --all-features
-    - run: cargo test --verbose --all --no-default-features
+    # Test docs.
+    - name: Test docs
+      run: cargo test --doc --all-features
 
+  # Build Cache
+  # -----------
+  #
+  # Prepare a cache for checking and building 'daemonbase', on 'main'.
+  cache:
+    name: Cache
+    needs: determine-msrv
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macOS-latest, windows-latest]
+        rust: ["${{ needs.determine-msrv.outputs.msrv }}", stable, nightly]
+    runs-on: ${{ matrix.os }}
+    if: github.ref == 'refs/heads/main'
+    env:
+      RUSTFLAGS: "-D warnings"
+      # See <https://github.com/actions/runner-images/issues/12432>
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: "rust-lld"
+    steps:
+
+    # Load the repository.
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Set up the Rust toolchain.
+    - name: Set up Rust ${{ matrix.rust }}
+      id: setup-rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: ${{ matrix.rust }}
+        cache: false
+
+    # Restore a cache of dependencies and 'target'.
+    - name: Restore from cache
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          Cargo.cached.lock
+          ~/.cargo
+          target/
+        # Cache by OS and Rust version.
+        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}-
+
+    # For MSRV builds, use the cached 'Cargo.lock'.
+    - name: Use the cached Cargo lockfile
+      if: matrix.rust == needs.determine-msrv.outputs.msrv
+      # Remove 'Cargo.lock' even if a cached lockfile is unavailable.
+      run: mv Cargo.cached.lock Cargo.lock || rm Cargo.lock
+
+    # Build all of 'daemonbase'.
+    - name: Build
+      run: cargo build --all-targets --all-features
+
+    # Copy to the Cargo lockfile for optional caching.
+    - name: Copy the Cargo lockfile for optional caching
+      run: cp Cargo.lock Cargo.cached.lock
+
+    # Save to the cache.
+    - name: Save to the cache
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          Cargo.cached.lock
+          ~/.cargo
+          target/
+        # Cache by OS and Rust version.
+        #
+        # GitHub treats cache entries as immutable (although it _does_ allow
+        # explicitly removing and re-adding them). We include the run ID so
+        # the cache key is unique every time; when restoring from the cache,
+        # we don't specify the run ID, and GitHub will automatically find the
+        # most recent cache entry using the key as a prefix.
+        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}-${{ github.run_id }}
+
+# TODO: Use 'cargo-semver-checks' on releases.
