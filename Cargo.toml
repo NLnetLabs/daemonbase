@@ -26,4 +26,5 @@ toml_edit       = "0.25.11"
 [target.'cfg(unix)'.dependencies]
 nix             = { version = "0.31", features = [ "fs", "net", "process", "socket", "user" ] }
 syslog          = "7"
+time            = "0.3.9" # used by 'syslog'
 
