@@ -1,15 +1,13 @@
-
-use std::{env, fmt, fs, ops};
+use crate::error::Failed;
+use log::error;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use log::error;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::{env, fmt, fs, ops};
 use toml_edit as toml;
-use crate::error::Failed;
-
 
 //------------ ConfigFile ----------------------------------------------------
 
@@ -40,14 +38,11 @@ impl ConfigFile {
     pub fn read(path: &Path) -> Result<Option<Self>, Failed> {
         let mut file = match fs::File::open(path) {
             Ok(file) => file,
-            Err(_) => return Ok(None)
+            Err(_) => return Ok(None),
         };
         let mut config = String::new();
         if let Err(err) = file.read_to_string(&mut config) {
-            error!(
-                "Failed to read config file {}: {}",
-                path.display(), err
-            );
+            error!("Failed to read config file {}: {}", path.display(), err);
             return Err(Failed);
         }
         Self::parse(&config, path).map(Some)
@@ -60,13 +55,15 @@ impl ConfigFile {
             Err(err) => {
                 eprintln!(
                     "Failed to parse config file {}: {}",
-                    path.display(), err
+                    path.display(),
+                    err
                 );
                 return Err(Failed);
             }
         };
-        let dir = if path.is_relative() {
-            path.join(match env::current_dir() {
+        let dir =
+            if path.is_relative() {
+                path.join(match env::current_dir() {
                 Ok(dir) => dir,
                 Err(err) => {
                     error!(
@@ -75,14 +72,13 @@ impl ConfigFile {
                     return Err(Failed);
                 }
             }).parent().unwrap().into() // a file always has a parent
-        }
-        else {
-            path.parent().unwrap().into()
-        };
+            } else {
+                path.parent().unwrap().into()
+            };
         Ok(ConfigFile {
             content,
             path: path.into(),
-            dir
+            dir,
         })
     }
 
@@ -93,7 +89,8 @@ impl ConfigFile {
 
     /// Takes a value from the from the config file if present.
     pub fn take_value(
-        &mut self, key: &str
+        &mut self,
+        key: &str,
     ) -> Result<Option<toml::Value>, Failed> {
         match self.content.remove(key) {
             Some(toml::Item::Value(value)) => Ok(Some(value)),
@@ -101,14 +98,14 @@ impl ConfigFile {
                 error!(
                     "Failed in config file {}: \
                      '{}' expected to be a value.",
-                    self.path.display(), key
+                    self.path.display(),
+                    key
                 );
                 Err(Failed)
             }
-            None => Ok(None)
+            None => Ok(None),
         }
     }
-    
 
     /// Takes a boolean value from the config file.
     ///
@@ -122,11 +119,12 @@ impl ConfigFile {
                 error!(
                     "Failed in config file {}: \
                      '{}' expected to be a boolean.",
-                    self.path.display(), key
+                    self.path.display(),
+                    key
                 );
                 Err(Failed)
             }
-            None => Ok(None)
+            None => Ok(None),
         }
     }
 
@@ -144,7 +142,8 @@ impl ConfigFile {
                         error!(
                             "Failed in config file {}: \
                             '{}' expected to be a positive integer.",
-                            self.path.display(), key
+                            self.path.display(),
+                            key
                         );
                         Err(Failed)
                     }
@@ -154,11 +153,12 @@ impl ConfigFile {
                 error!(
                     "Failed in config file {}: \
                      '{}' expected to be an integer.",
-                    self.path.display(), key
+                    self.path.display(),
+                    key
                 );
                 Err(Failed)
             }
-            None => Ok(None)
+            None => Ok(None),
         }
     }
 
@@ -168,35 +168,38 @@ impl ConfigFile {
     /// is no such key. Returns an error if the key exists but the value
     /// isn’t an integer, is larger than `limit` or is negative.
     pub fn take_limited_u8(
-        &mut self, key: &str, limit: u8,
+        &mut self,
+        key: &str,
+        limit: u8,
     ) -> Result<Option<u8>, Failed> {
         match self.take_u64(key)? {
-            Some(value) => {
-                match u8::try_from(value) {
-                    Ok(value) => {
-                        if value > limit {
-                            error!(
-                                "Failed in config file {}: \
-                                '{}' expected integer between 0 and {}.",
-                                self.path.display(), key, limit,
-                            );
-                            Err(Failed)
-                        }
-                        else {
-                            Ok(Some(value))
-                        }
-                    }
-                    Err(_) => {
+            Some(value) => match u8::try_from(value) {
+                Ok(value) => {
+                    if value > limit {
                         error!(
                             "Failed in config file {}: \
-                            '{}' expected integer between 0 and {}.",
-                            self.path.display(), key, limit,
+                                '{}' expected integer between 0 and {}.",
+                            self.path.display(),
+                            key,
+                            limit,
                         );
                         Err(Failed)
+                    } else {
+                        Ok(Some(value))
                     }
                 }
-            }
-            None => Ok(None)
+                Err(_) => {
+                    error!(
+                        "Failed in config file {}: \
+                            '{}' expected integer between 0 and {}.",
+                        self.path.display(),
+                        key,
+                        limit,
+                    );
+                    Err(Failed)
+                }
+            },
+            None => Ok(None),
         }
     }
 
@@ -207,20 +210,19 @@ impl ConfigFile {
     /// isn’t an integer or if it is negative.
     pub fn take_usize(&mut self, key: &str) -> Result<Option<usize>, Failed> {
         match self.take_u64(key)? {
-            Some(value) => {
-                match usize::try_from(value) {
-                    Ok(value) => Ok(Some(value)),
-                    Err(_) => {
-                        error!(
-                            "Failed in config file {}: \
+            Some(value) => match usize::try_from(value) {
+                Ok(value) => Ok(Some(value)),
+                Err(_) => {
+                    error!(
+                        "Failed in config file {}: \
                             '{}' expected to be a positive integer.",
-                            self.path.display(), key
-                        );
-                        Err(Failed)
-                    }
+                        self.path.display(),
+                        key
+                    );
+                    Err(Failed)
                 }
-            }
-            None => Ok(None)
+            },
+            None => Ok(None),
         }
     }
 
@@ -233,7 +235,8 @@ impl ConfigFile {
     /// is no such key. Returns an error if the key exists but the value
     /// isn’t an integer or if it is out of bounds.
     pub fn take_small_usize(
-        &mut self, key: &str
+        &mut self,
+        key: &str,
     ) -> Result<Option<usize>, Failed> {
         match self.take_usize(key)? {
             Some(value) => {
@@ -241,15 +244,15 @@ impl ConfigFile {
                     error!(
                         "Failed in config file {}: \
                         value for '{}' is too large.",
-                        self.path.display(), key
+                        self.path.display(),
+                        key
                     );
                     Err(Failed)
-                }
-                else {
+                } else {
                     Ok(Some(value))
                 }
             }
-            None => Ok(None)
+            None => Ok(None),
         }
     }
 
@@ -259,21 +262,21 @@ impl ConfigFile {
     /// is no such key. Returns an error if the key exists but the value
     /// isn’t a string.
     pub fn take_string(
-        &mut self, key: &str
+        &mut self,
+        key: &str,
     ) -> Result<Option<String>, Failed> {
         match self.take_value(key)? {
-            Some(toml::Value::String(value)) => {
-                Ok(Some(value.into_value()))
-            }
+            Some(toml::Value::String(value)) => Ok(Some(value.into_value())),
             Some(_) => {
                 error!(
                     "Failed in config file {}: \
                      '{}' expected to be a string.",
-                    self.path.display(), key
+                    self.path.display(),
+                    key
                 );
                 Err(Failed)
             }
-            None => Ok(None)
+            None => Ok(None),
         }
     }
 
@@ -285,22 +288,25 @@ impl ConfigFile {
     /// Returns `Ok(None)` if the key doesn’t exist. Returns an error if the
     /// key exists but the value isn’t a string or conversion fails.
     pub fn take_from_str<T>(&mut self, key: &str) -> Result<Option<T>, Failed>
-    where T: FromStr, T::Err: fmt::Display {
+    where
+        T: FromStr,
+        T::Err: fmt::Display,
+    {
         match self.take_string(key)? {
-            Some(value) => {
-                match T::from_str(&value) {
-                    Ok(some) => Ok(Some(some)),
-                    Err(err) => {
-                        error!(
-                            "Failed in config file {}: \
+            Some(value) => match T::from_str(&value) {
+                Ok(some) => Ok(Some(some)),
+                Err(err) => {
+                    error!(
+                        "Failed in config file {}: \
                              illegal value in '{}': {}.",
-                            self.path.display(), key, err
-                        );
-                        Err(Failed)
-                    }
+                        self.path.display(),
+                        key,
+                        err
+                    );
+                    Err(Failed)
                 }
-            }
-            None => Ok(None)
+            },
+            None => Ok(None),
         }
     }
 
@@ -314,11 +320,11 @@ impl ConfigFile {
     /// Returns `Ok(None)` if the key does not exist. Returns an error if the
     /// key exists but the value isn’t a string.
     pub fn take_path(
-        &mut self, key: &str
+        &mut self,
+        key: &str,
     ) -> Result<Option<ConfigPath>, Failed> {
-        self.take_string(key).map(|opt| {
-            opt.map(|path| self.dir.join(path).into())
-        })
+        self.take_string(key)
+            .map(|opt| opt.map(|path| self.dir.join(path).into()))
     }
 
     /// Takes a mandatory path value from the config file.
@@ -328,14 +334,16 @@ impl ConfigFile {
     ///
     /// [`take_path`]: #method.take_path
     pub fn take_mandatory_path(
-        &mut self, key: &str
+        &mut self,
+        key: &str,
     ) -> Result<ConfigPath, Failed> {
         match self.take_path(key)? {
             Some(res) => Ok(res),
             None => {
                 error!(
                     "Failed in config file {}: missing required '{}'.",
-                    self.path.display(), key
+                    self.path.display(),
+                    key
                 );
                 Err(Failed)
             }
@@ -350,7 +358,7 @@ impl ConfigFile {
     /// but not an array of strings, returns an error.
     pub fn take_string_array(
         &mut self,
-        key: &str
+        key: &str,
     ) -> Result<Option<Vec<String>>, Failed> {
         match self.take_value(key)? {
             Some(toml::Value::Array(vec)) => {
@@ -358,8 +366,7 @@ impl ConfigFile {
                 for value in vec.into_iter() {
                     if let toml::Value::String(value) = value {
                         res.push(value.into_value())
-                    }
-                    else {
+                    } else {
                         error!(
                             "Failed in config file {}: \
                             '{}' expected to be a array of strings.",
@@ -375,11 +382,12 @@ impl ConfigFile {
                 error!(
                     "Failed in config file {}: \
                      '{}' expected to be a array of strings.",
-                    self.path.display(), key
+                    self.path.display(),
+                    key
                 );
                 Err(Failed)
             }
-            None => Ok(None)
+            None => Ok(None),
         }
     }
 
@@ -394,9 +402,12 @@ impl ConfigFile {
     /// returns an error.
     pub fn take_from_str_array<T>(
         &mut self,
-        key: &str
+        key: &str,
     ) -> Result<Option<Vec<T>>, Failed>
-    where T: FromStr, T::Err: fmt::Display {
+    where
+        T: FromStr,
+        T::Err: fmt::Display,
+    {
         match self.take_value(key)? {
             Some(toml::Value::Array(vec)) => {
                 let mut res = Vec::new();
@@ -408,20 +419,21 @@ impl ConfigFile {
                                 error!(
                                     "Failed in config file {}: \
                                      Invalid value in '{}': {}",
-                                    self.path.display(), key, err
+                                    self.path.display(),
+                                    key,
+                                    err
                                 );
-                                return Err(Failed)
+                                return Err(Failed);
                             }
                         }
-                    }
-                    else {
+                    } else {
                         error!(
                             "Failed in config file {}: \
                             '{}' expected to be a array of strings.",
                             self.path.display(),
                             key
                         );
-                        return Err(Failed)
+                        return Err(Failed);
                     }
                 }
                 Ok(Some(res))
@@ -430,11 +442,12 @@ impl ConfigFile {
                 error!(
                     "Failed in config file {}: \
                      '{}' expected to be a array of strings.",
-                    self.path.display(), key
+                    self.path.display(),
+                    key
                 );
                 Err(Failed)
             }
-            None => Ok(None)
+            None => Ok(None),
         }
     }
 
@@ -449,7 +462,7 @@ impl ConfigFile {
     /// key exists but the value isn’t an array of string.
     pub fn take_path_array(
         &mut self,
-        key: &str
+        key: &str,
     ) -> Result<Option<Vec<ConfigPath>>, Failed> {
         match self.take_value(key)? {
             Some(toml::Value::String(value)) => {
@@ -460,8 +473,7 @@ impl ConfigFile {
                 for value in vec.into_iter() {
                     if let toml::Value::String(value) = value {
                         res.push(self.dir.join(value.into_value()).into())
-                    }
-                    else {
+                    } else {
                         error!(
                             "Failed in config file {}: \
                             '{}' expected to be a array of paths.",
@@ -477,18 +489,19 @@ impl ConfigFile {
                 error!(
                     "Failed in config file {}: \
                      '{}' expected to be a array of paths.",
-                    self.path.display(), key
+                    self.path.display(),
+                    key
                 );
                 Err(Failed)
             }
-            None => Ok(None)
+            None => Ok(None),
         }
     }
 
     /// Takes a string-to-string hashmap from the config file.
     pub fn take_string_map(
         &mut self,
-        key: &str
+        key: &str,
     ) -> Result<Option<HashMap<String, String>>, Failed> {
         match self.take_value(key)? {
             Some(toml::Value::Array(vec)) => {
@@ -539,9 +552,10 @@ impl ConfigFile {
                         );
                         return Err(Failed);
                     }
-                    if res.insert(
-                        left.into_value(), right.into_value()
-                    ).is_some() {
+                    if res
+                        .insert(left.into_value(), right.into_value())
+                        .is_some()
+                    {
                         error!(
                             "Failed in config file {}: \
                             'duplicate item in '{}'.",
@@ -557,11 +571,12 @@ impl ConfigFile {
                 error!(
                     "Failed in config file {}: \
                      '{}' expected to be a array of string pairs.",
-                    self.path.display(), key
+                    self.path.display(),
+                    key
                 );
                 Err(Failed)
             }
-            None => Ok(None)
+            None => Ok(None),
         }
     }
 
@@ -578,41 +593,37 @@ impl ConfigFile {
             for (key, _) in self.content.iter() {
                 if !first {
                     print!(",");
-                }
-                else {
+                } else {
                     first = false
                 }
                 print!("{key}");
             }
             error!(".");
             Err(Failed)
-        }
-        else {
+        } else {
             Ok(())
         }
     }
 
     /// Inserts a string value.
     pub fn insert_string(&mut self, key: &str, value: impl ToString) {
-        self.content.insert(key, toml::Item::Value(
-            toml::Value::String(
-                toml::Formatted::new(
-                    value.to_string()
-                )
-            )
-        ));
+        self.content.insert(
+            key,
+            toml::Item::Value(toml::Value::String(toml::Formatted::new(
+                value.to_string(),
+            ))),
+        );
     }
 
     /// Insert a path value.
     pub fn insert_path(&mut self, key: &str, path: &Path) {
         let path = match path.strip_prefix(&self.dir) {
             Ok(path) => path,
-            Err(_) => path
+            Err(_) => path,
         };
         self.insert_string(key, path.display())
     }
 }
-
 
 //------------ ConfigPath ----------------------------------------------------
 
@@ -631,9 +642,7 @@ impl ConfigFile {
 ///
 /// Under the hood, this uses a thread local variable, so (de-) serializers
 /// that somehow spawn threads may not work as expected.
-#[derive(
-    Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd,
-)]
+#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ConfigPath(PathBuf);
 
 impl ConfigPath {
@@ -657,26 +666,20 @@ impl ConfigPath {
 
     fn construct(path: PathBuf) -> Self {
         Self::BASE_PATH.with(|base_path| {
-            Self(
-                match base_path.borrow().as_ref() {
-                    Some(base_path) => base_path.join(&path),
-                    None => path
-                }
-            )
+            Self(match base_path.borrow().as_ref() {
+                Some(base_path) => base_path.join(&path),
+                None => path,
+            })
         })
     }
 
     fn deconstruct(&self) -> &Path {
-        Self::BASE_PATH.with(|base_path| {
-            match base_path.borrow().as_ref() {
-                Some(base_path) => {
-                    match self.0.strip_prefix(base_path) {
-                        Ok(path) => path,
-                        Err(_) => self.0.as_ref(),
-                    }
-                }
-                None => self.0.as_ref()
-            }
+        Self::BASE_PATH.with(|base_path| match base_path.borrow().as_ref() {
+            Some(base_path) => match self.0.strip_prefix(base_path) {
+                Ok(path) => path,
+                Err(_) => self.0.as_ref(),
+            },
+            None => self.0.as_ref(),
         })
     }
 }
@@ -722,7 +725,7 @@ impl AsRef<Path> for ConfigPath {
 
 impl<'de> Deserialize<'de> for ConfigPath {
     fn deserialize<D: Deserializer<'de>>(
-        deserializer: D
+        deserializer: D,
     ) -> Result<Self, D::Error> {
         Ok(Self::construct(PathBuf::deserialize(deserializer)?))
     }
@@ -730,7 +733,8 @@ impl<'de> Deserialize<'de> for ConfigPath {
 
 impl Serialize for ConfigPath {
     fn serialize<S: Serializer>(
-        &self, serializer: S
+        &self,
+        serializer: S,
     ) -> Result<S::Ok, S::Error> {
         self.deconstruct().serialize(serializer)
     }
@@ -743,7 +747,6 @@ impl clap::builder::ValueParserFactory for ConfigPath {
         ConfigPathParser
     }
 }
-
 
 //------------ ConfigPathParser ----------------------------------------------
 
@@ -759,23 +762,21 @@ impl clap::builder::TypedValueParser for ConfigPathParser {
         arg: Option<&clap::Arg>,
         value: &std::ffi::OsStr,
     ) -> Result<Self::Value, clap::Error> {
-        let path = clap::builder::PathBufValueParser::new().parse_ref(
-            cmd, arg, value
-        )?;
+        let path = clap::builder::PathBufValueParser::new()
+            .parse_ref(cmd, arg, value)?;
         if path.is_absolute() {
             return Ok(ConfigPath(path));
         }
         let cur_dir = match env::current_dir() {
             Ok(dir) => dir,
             Err(err) => {
-                let mut res = clap::Error::new(
-                    clap::error::ErrorKind::Io
-                ).with_cmd(cmd);
+                let mut res = clap::Error::new(clap::error::ErrorKind::Io)
+                    .with_cmd(cmd);
                 res.insert(
                     clap::error::ContextKind::Custom,
-                    clap::error::ContextValue::String(
-                        format!("Failed to get current directory: {err}")
-                    )
+                    clap::error::ContextValue::String(format!(
+                        "Failed to get current directory: {err}"
+                    )),
                 );
                 return Err(res);
             }
@@ -783,4 +784,3 @@ impl clap::builder::TypedValueParser for ConfigPathParser {
         Ok(ConfigPath(cur_dir.join(path)))
     }
 }
-
