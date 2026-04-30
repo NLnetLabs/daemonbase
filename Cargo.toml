@@ -18,7 +18,7 @@ clap            = { version = "4", features = [ "derive" ] }
 log             = "0.4.8"
 serde           = { version = "1.0.95", features = [ "derive" ] }
 tokio           = { version = "1.40", features = [ "macros", "signal" ], optional = true }
-toml_edit       = "0.23"
+toml_edit       = "0.25.11"
 
 
 [target.'cfg(unix)'.dependencies]
