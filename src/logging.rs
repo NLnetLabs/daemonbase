@@ -1,16 +1,16 @@
 //! Logging.
 
-use std::{fmt, fs, io};
+use crate::config::{ConfigFile, ConfigPath};
+use crate::error::{ExitError, Failed};
+use clap::ArgAction;
+use log::error;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::io::Write;
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Mutex, MutexGuard, OnceLock};
-use clap::ArgAction;
-use log::error;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use crate::config::{ConfigFile, ConfigPath};
-use crate::error::{ExitError, Failed};
+use std::{fmt, fs, io};
 
 // Export LevelFilter for clients that don't use log, e.g. if they use tracing
 // instead.
@@ -33,10 +33,7 @@ pub struct Logger {
 
 impl Logger {
     pub fn new(level: LevelFilter, target: Target) -> Self {
-        Self {
-            level,
-            target,
-        }
+        Self { level, target }
     }
 
     /// Initialize logging.
@@ -49,7 +46,7 @@ impl Logger {
         log::set_max_level(LevelFilter::Warn);
         if let Err(err) = log::set_logger(&GLOBAL_LOGGER) {
             eprintln!("Failed to initialize logger: {err}.\nAborting.");
-            return Err(ExitError::default())
+            return Err(ExitError::default());
         }
         Ok(())
     }
@@ -65,18 +62,16 @@ impl Logger {
                     Target::Syslog(config.syslog_facility.into())
                 }
                 TargetName::Stderr => Target::Stderr,
-                TargetName::File => {
-                    match config.log_file.as_ref() {
-                        Some(LogPath::Stderr) => Target::Stderr,
-                        Some(LogPath::Path(file)) => {
-                            Target::File(file.clone().into())
-                        }
-                        None => {
-                            error!("Missing 'log-file' option in config.");
-                            return Err(Failed)
-                        }
+                TargetName::File => match config.log_file.as_ref() {
+                    Some(LogPath::Stderr) => Target::Stderr,
+                    Some(LogPath::Path(file)) => {
+                        Target::File(file.clone().into())
                     }
-                }
+                    None => {
+                        error!("Missing 'log-file' option in config.");
+                        return Err(Failed);
+                    }
+                },
             },
         })
     }
@@ -93,10 +88,7 @@ impl Logger {
     ///
     /// This method should only be called once. It returns an error if called
     /// again.
-    pub fn switch_logging(
-        &self,
-        daemon: bool,
-    ) -> Result<(), Failed> {
+    pub fn switch_logging(&self, daemon: bool) -> Result<(), Failed> {
         let logger = Dispatch::new(self, daemon)?;
         GLOBAL_LOGGER.switch(logger);
         log::set_max_level(self.level);
@@ -108,7 +100,6 @@ impl Logger {
         GLOBAL_LOGGER.rotate()
     }
 }
-
 
 //------------ Config --------------------------------------------------------
 
@@ -132,16 +123,16 @@ impl Config {
     /// Creates the logger from a config file.
     pub fn from_config_file(file: &mut ConfigFile) -> Result<Self, Failed> {
         Ok(Self {
-            log_level: file.take_from_str::<LevelName>(
-                "log-level"
-            )?.unwrap_or_default(),
-            log_target: file.take_from_str::<TargetName>(
-                "log"
-            )?.unwrap_or_default(),
+            log_level: file
+                .take_from_str::<LevelName>("log-level")?
+                .unwrap_or_default(),
+            log_target: file
+                .take_from_str::<TargetName>("log")?
+                .unwrap_or_default(),
             #[cfg(unix)]
-            syslog_facility: file.take_from_str::<unix::FacilityArg>(
-                "syslog-facility"
-            )?.unwrap_or_default(),
+            syslog_facility: file
+                .take_from_str::<unix::FacilityArg>("syslog-facility")?
+                .unwrap_or_default(),
             log_file: file.take_string("log-file")?.map(Into::into),
         })
     }
@@ -160,12 +151,10 @@ impl Config {
 
         if args.stderr {
             self.log_target = TargetName::Stderr;
-        }
-        else if let Some(path) = args.logfile.as_ref() {
+        } else if let Some(path) = args.logfile.as_ref() {
             self.log_target = TargetName::File;
             self.log_file = Some(path.clone());
-        }
-        else {
+        } else {
             #[cfg(unix)]
             if args.syslog {
                 self.log_target = TargetName::Syslog;
@@ -186,17 +175,14 @@ impl Config {
         if !self.syslog_facility.is_default() {
             config.insert_string(
                 "syslog-facility",
-                self.syslog_facility.as_str()
+                self.syslog_facility.as_str(),
             );
         }
         if let Some(path) = self.log_file.as_ref() {
-            config.insert_string(
-                "log-file", path
-            );
+            config.insert_string("log-file", path);
         }
     }
 }
-
 
 //------------ TargetName ----------------------------------------------------
 
@@ -209,7 +195,7 @@ enum TargetName {
     #[cfg(unix)]
     Syslog,
     Stderr,
-    File
+    File,
 }
 
 impl TargetName {
@@ -248,11 +234,10 @@ impl FromStr for TargetName {
             "syslog" => Ok(TargetName::Syslog),
             "stderr" => Ok(TargetName::Stderr),
             "file" => Ok(TargetName::File),
-            _ => Err("invalid log target")
+            _ => Err("invalid log target"),
         }
     }
 }
-
 
 //------------ LevelName -----------------------------------------------------
 
@@ -297,10 +282,11 @@ impl FromStr for LevelName {
     type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        LevelFilter::from_str(s).map(Self).map_err(|_| "invalid log level")
+        LevelFilter::from_str(s)
+            .map(Self)
+            .map_err(|_| "invalid log level")
     }
 }
-
 
 //------------ LogPath -------------------------------------------------------
 
@@ -318,8 +304,7 @@ impl From<String> for LogPath {
     fn from(src: String) -> Self {
         if src == "-" {
             Self::Stderr
-        }
-        else {
+        } else {
             Self::Path(src.into())
         }
     }
@@ -327,13 +312,12 @@ impl From<String> for LogPath {
 
 impl<'de> Deserialize<'de> for LogPath {
     fn deserialize<D: Deserializer<'de>>(
-        deserializer: D
+        deserializer: D,
     ) -> Result<Self, D::Error> {
         let path = String::deserialize(deserializer)?;
         if path == "-" {
             Ok(Self::Stderr)
-        }
-        else {
+        } else {
             Ok(Self::Path(path.into()))
         }
     }
@@ -341,7 +325,8 @@ impl<'de> Deserialize<'de> for LogPath {
 
 impl Serialize for LogPath {
     fn serialize<S: Serializer>(
-        &self, serializer: S
+        &self,
+        serializer: S,
     ) -> Result<S::Ok, S::Error> {
         match self {
             Self::Stderr => "-".serialize(serializer),
@@ -358,7 +343,6 @@ impl fmt::Display for LogPath {
         }
     }
 }
-
 
 //------------ Args ----------------------------------------------------------
 
@@ -414,17 +398,13 @@ impl Args {
     pub fn opt_level(&self) -> Option<LevelFilter> {
         if self.verbose > 1 {
             Some(LevelFilter::Debug)
-        }
-        else if self.verbose == 1 {
+        } else if self.verbose == 1 {
             Some(LevelFilter::Info)
-        }
-        else if self.quiet > 1 {
+        } else if self.quiet > 1 {
             Some(LevelFilter::Off)
-        }
-        else if self.quiet == 1 {
+        } else if self.quiet == 1 {
             Some(LevelFilter::Error)
-        }
-        else {
+        } else {
             None
         }
     }
@@ -433,7 +413,6 @@ impl Args {
         Config::from_args(self)
     }
 }
-
 
 //------------ Target --------------------------------------------------------
 
@@ -459,9 +438,8 @@ pub enum Target {
     /// A file.
     ///
     /// The argument is the file name.
-    File(PathBuf)
+    File(PathBuf),
 }
-
 
 //--- PartialEq and Eq
 
@@ -474,16 +452,13 @@ impl PartialEq for Target {
                 (s as usize) == (o as usize)
             }
             (Self::Stderr, Self::Stderr) => true,
-            (Self::File(s), Self::File(o)) => {
-                s == o
-            }
-            _ => false
+            (Self::File(s), Self::File(o)) => s == o,
+            _ => false,
         }
     }
 }
 
-impl Eq for Target { }
-
+impl Eq for Target {}
 
 //------------ Dispatch ------------------------------------------------------
 
@@ -507,40 +482,32 @@ enum LogBackend {
     Stderr {
         stderr: io::Stderr,
         timestamp: bool,
-    }
+    },
 }
 
 impl Dispatch {
     /// Creates a new logger from config and additional information.
-    fn new(
-        config: &Logger, daemon: bool,
-    ) -> Result<Self, Failed> {
+    fn new(config: &Logger, daemon: bool) -> Result<Self, Failed> {
         let target = match config.target {
             #[cfg(unix)]
             Target::Default => {
-                if daemon { 
+                if daemon {
                     Self::new_syslog_target(
-                        syslog::Facility::LOG_DAEMON, false,
+                        syslog::Facility::LOG_DAEMON,
+                        false,
                     )?
-                }
-                else {
+                } else {
                     Self::new_stderr_target(false)
                 }
             }
             #[cfg(not(unix))]
-            Target::Default => {
-                Self::new_stderr_target(false)
-            }
+            Target::Default => Self::new_stderr_target(false),
             #[cfg(unix)]
             Target::Syslog(facility) => {
                 Self::new_syslog_target(facility, true)?
             }
-            Target::File(ref path) => {
-                Self::new_file_target(path.clone())?
-            }
-            Target::Stderr => {
-                Self::new_stderr_target(daemon)
-            }
+            Target::File(ref path) => Self::new_file_target(path.clone())?,
+            Target::Stderr => Self::new_stderr_target(daemon),
         };
         Ok(Self {
             target: Mutex::new(target),
@@ -566,12 +533,13 @@ impl Dispatch {
                 Err(err) => {
                     error!(
                         "Failed to open log file '{}': {}",
-                        path.display(), err
+                        path.display(),
+                        err
                     );
-                    return Err(Failed)
+                    return Err(Failed);
                 }
             },
-            path
+            path,
         })
     }
 
@@ -613,22 +581,29 @@ impl Dispatch {
             LogBackend::Syslog(logger) => logger.log(record),
             LogBackend::File { file, .. } => {
                 writeln!(
-                    file, "[{}] [{}] {}",
+                    file,
+                    "[{}] [{}] {}",
                     format_timestamp(),
                     record.level(),
                     record.args()
                 )
             }
-            LogBackend::Stderr{ stderr, timestamp } => {
+            LogBackend::Stderr { stderr, timestamp } => {
                 // We never fail when writing to stderr.
                 if *timestamp {
-                    let _ = writeln!(stderr, "[{}] [{}] {}",
-                        format_timestamp(), record.level(), record.args()
-                    );
-                }
-                else {
                     let _ = writeln!(
-                        stderr, "[{}] {}", record.level(), record.args()
+                        stderr,
+                        "[{}] [{}] {}",
+                        format_timestamp(),
+                        record.level(),
+                        record.args()
+                    );
+                } else {
+                    let _ = writeln!(
+                        stderr,
+                        "[{}] {}",
+                        record.level(),
+                        record.args()
                     );
                 }
                 Ok(())
@@ -651,7 +626,7 @@ impl Dispatch {
                     err
                 );
             }
-            LogBackend::Stderr { ..  } => {
+            LogBackend::Stderr { .. } => {
                 // We never fail when writing to stderr.
             }
         }
@@ -667,7 +642,7 @@ impl Dispatch {
                 let _ = file.flush();
             }
             LogBackend::Stderr { stderr, .. } => {
-                let _  = stderr.lock().flush();
+                let _ = stderr.lock().flush();
             }
         }
     }
@@ -687,21 +662,20 @@ impl Dispatch {
         if record.level() > log::Level::Error {
             // From rustls, only log errors.
             if module.starts_with("rustls") {
-                return true
+                return true;
             }
         }
         if self.level >= log::LevelFilter::Debug {
             // Don’t filter anything else if we are in debug or trace.
-            return false
+            return false;
         }
 
         // Ignore these modules unless INFO or more important.
-        record.level() > log::Level::Info && (
-               module.starts_with("tokio_reactor")
-            || module.starts_with("hyper")
-            || module.starts_with("reqwest")
-            || module.starts_with("h2")
-        )
+        record.level() > log::Level::Info
+            && (module.starts_with("tokio_reactor")
+                || module.starts_with("hyper")
+                || module.starts_with("reqwest")
+                || module.starts_with("h2"))
     }
 
     /// Rotates the log target if necessary.
@@ -714,22 +688,24 @@ impl Dispatch {
             *file = match Self::open_log_file(path) {
                 Ok(file) => file,
                 Err(err) => {
-                    let _ = writeln!(file,
+                    let _ = writeln!(
+                        file,
                         "Re-opening log file {} failed: {}. Exiting.",
-                        path.display(), err
+                        path.display(),
+                        err
                     );
                     eprintln!(
                         "Re-opening log file {} failed: {}. Exiting.",
-                        path.display(), err
+                        path.display(),
+                        err
                     );
-                    return Err(Failed)
+                    return Err(Failed);
                 }
             }
         }
         Ok(())
     }
 }
-
 
 //------------ SyslogLogger --------------------------------------------------
 
@@ -744,7 +720,7 @@ mod unix {
     /// logger behind a mutex – which we already do – and doesn’t return
     /// error – which we do want to see.
     pub struct SyslogLogger(
-        syslog::Logger<syslog::LoggerBackend, syslog::Formatter3164>
+        syslog::Logger<syslog::LoggerBackend, syslog::Formatter3164>,
     );
 
     impl SyslogLogger {
@@ -753,11 +729,14 @@ mod unix {
             facility: syslog::Facility,
             use_inet: bool,
         ) -> Result<Self, Failed> {
-            let process = std::env::current_exe().ok().and_then(|path|
-                path.file_name()
-                    .and_then(std::ffi::OsStr::to_str)
-                    .map(ToString::to_string)
-            ).unwrap_or_else(|| String::from("routinator"));
+            let process = std::env::current_exe()
+                .ok()
+                .and_then(|path| {
+                    path.file_name()
+                        .and_then(std::ffi::OsStr::to_str)
+                        .map(ToString::to_string)
+                })
+                .unwrap_or_else(|| String::from("routinator"));
             let formatter = syslog::Formatter3164 {
                 facility,
                 hostname: None,
@@ -770,16 +749,19 @@ mod unix {
                 Err(err) => {
                     if !use_inet {
                         error!("Cannot connect to syslog: {err}");
-                        return Err(Failed)
+                        return Err(Failed);
                     }
                 }
             }
 
-            let logger = syslog::tcp(
-                formatter.clone(), ("127.0.0.1", 601)
-            ).or_else(|_| {
-                syslog::udp(formatter, ("127.0.0.1", 0), ("127.0.0.1", 514))
-            });
+            let logger = syslog::tcp(formatter.clone(), ("127.0.0.1", 601))
+                .or_else(|_| {
+                    syslog::udp(
+                        formatter,
+                        ("127.0.0.1", 0),
+                        ("127.0.0.1", 514),
+                    )
+                });
             match logger {
                 Ok(logger) => Ok(Self(logger)),
                 Err(err) => {
@@ -800,11 +782,10 @@ mod unix {
                     // Syslog doesn’t have trace, use debug instead.
                     self.0.debug(record.args())
                 }
-            }.map_err(|err| {
-                match err {
-                    syslog::Error::Io(err) => err,
-                    err => io::Error::other(err),
-                }
+            }
+            .map_err(|err| match err {
+                syslog::Error::Io(err) => err,
+                err => io::Error::other(err),
             })
         }
 
@@ -894,9 +875,9 @@ mod unix {
         type Err = &'static str;
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
-            syslog::Facility::from_str(s).map(Self).map_err(|_| {
-                "invalid syslog facility"
-            })
+            syslog::Facility::from_str(s)
+                .map(Self)
+                .map_err(|_| "invalid syslog facility")
         }
     }
 
@@ -932,7 +913,6 @@ mod unix {
     }
 }
 
-
 //------------ GlobalLogger --------------------------------------------------
 
 /// The global logger.
@@ -950,7 +930,9 @@ static GLOBAL_LOGGER: GlobalLogger = GlobalLogger::new();
 impl GlobalLogger {
     /// Creates a new provisional logger.
     const fn new() -> Self {
-        GlobalLogger { inner: OnceLock::new() }
+        GlobalLogger {
+            inner: OnceLock::new(),
+        }
     }
 
     /// Switches to the proper logger.
@@ -969,7 +951,6 @@ impl GlobalLogger {
     }
 }
 
-
 impl log::Log for GlobalLogger {
     fn enabled(&self, _: &log::Metadata<'_>) -> bool {
         true
@@ -980,8 +961,10 @@ impl log::Log for GlobalLogger {
             Some(logger) => logger.log(record),
             None => {
                 let _ = writeln!(
-                    io::stderr().lock(), "[{}] {}",
-                    record.level(), record.args()
+                    io::stderr().lock(),
+                    "[{}] {}",
+                    record.level(),
+                    record.args()
                 );
             }
         }
@@ -993,7 +976,6 @@ impl log::Log for GlobalLogger {
         }
     }
 }
-
 
 //------------ Formatting dates ----------------------------------------------
 
@@ -1017,4 +999,3 @@ pub fn format_timestamp() -> impl fmt::Display {
 
     Local::now().format_with_items(LOCAL_ISO_DATE.iter())
 }
-

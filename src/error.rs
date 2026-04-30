@@ -13,7 +13,6 @@
 
 use log::error;
 
-
 //------------ Failed --------------------------------------------------------
 
 /// An operation has failed to complete.
@@ -23,7 +22,6 @@ use log::error;
 /// really do anything to recover.
 #[derive(Clone, Copy, Debug)]
 pub struct Failed;
-
 
 //------------ ExitError -----------------------------------------------------
 
@@ -43,4 +41,3 @@ impl From<Failed> for ExitError {
         ExitError::default()
     }
 }
-
