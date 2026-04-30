@@ -1,8 +1,8 @@
 # Change Log
 
-## Unreleased next version
+## 0.1.5
 
-Breaking changes
+Released 2026-04-30.
 
 New
 
@@ -15,10 +15,6 @@ Improvements
 * Provide public access to the fields of the logger and process
   configuration so you can use the crate with your own configuration
   means. ([#17])
-
-Bug fixes
-
-Other changes
 
 [17]: https://github.com/NLnetLabs/daemonbase/pull/17
 [23]: https://github.com/NLnetLabs/daemonbase/pull/23
