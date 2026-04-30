@@ -3,11 +3,17 @@
 #[cfg(unix)]
 pub use self::unix::{Args, Config, Process, UserId, GroupId};
 
+#[cfg(all(unix, feature = "tokio"))]
+pub use self::unix::exit_signalled;
+
 #[cfg(target_os = "linux")]
 pub use self::linux::EnvSockets;
 
 #[cfg(not(unix))]
 pub use self::not_unix::{Args, Config, Process};
+
+#[cfg(all(not(unix), feature = "tokio"))]
+pub use self::not_unix::exit_signalled;
 
 #[cfg(not(target_os = "linux"))]
 pub use self::not_linux::EnvSockets;
@@ -649,6 +655,31 @@ mod unix {
             user.name
         }
     }
+
+    //------------ exit_signalled --------------------------------------------
+
+    /// Returns when an exit signal was received.
+    ///
+    /// Returns when either a SIGINT or SIGTERM was received.
+    ///
+    #[cfg(feature = "tokio")]
+    pub async fn exit_signalled() -> Result<(), std::io::Error> {
+        use log::info;
+        use tokio::signal::unix::{signal, SignalKind};
+
+        let mut sigterm = signal(SignalKind::terminate())?;
+        let mut sigint = signal(SignalKind::interrupt())?;
+
+        tokio::select! {
+            _ = sigterm.recv() => {
+                info!("Received SIGTERM. Shutting down.");
+            }
+            _ = sigint.recv() => {
+                info!("Received SIGINT. Shutting down.");
+            }
+        }
+        Ok(())
+    }
 }
 
 /// An error occurred while working with environment variable derived socket
@@ -1207,6 +1238,17 @@ mod not_unix {
         pub fn into_config(&self) -> Config {
             Config
         }
+    }
+
+    //------------ exit_signalled --------------------------------------------
+
+    /// Returns when an exit signal was received.
+    ///
+    /// This non-Unix implementation returns when the equivalent of a Ctrl+C is
+    /// received.
+    #[cfg(feature = "tokio")]
+    pub async fn exit_signalled() -> Result<(), std::io::Error> {
+        tokio::signal::ctrl_c().await
     }
 }
 
