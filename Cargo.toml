@@ -15,8 +15,8 @@ categories = ["config"]
 license = "BSD-3-Clause"
 
 [dependencies]
-chrono          = "0.4.23"
 clap            = { version = "4.5.51", features = [ "derive" ] }
+jiff            = { version = "0.2.15" }
 log             = "0.4.8"
 serde           = { version = "1.0.228", features = [ "derive" ] }
 tokio           = { version = "1.40", features = [ "macros", "signal" ], optional = true }
