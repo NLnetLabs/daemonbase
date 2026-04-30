@@ -1,20 +1,22 @@
 [package]
 name = "daemonbase"
+authors = ["NLnet Labs <rust-team@nlnetlabs.nl>"]
+description = "A library for providing the foundation for daemon processes."
+
 version = "0.1.4"
 edition = "2024"
 rust-version = "1.87"
-authors = ["NLnet Labs <rust-team@nlnetlabs.nl>"]
-description = "A library for providing the foundation for daemon processes."
+
 documentation = "https://docs.rs/daemonbase/"
 homepage = "https://github.com/nlnetlabs/daemonbase/"
 repository = "https://github.com/NLnetLabs/daemonbase^"
 keywords = ["daemon", "logging", "system-service" ]
-categories = [ "config" ]
+categories = ["config"]
 license = "BSD-3-Clause"
 
 [dependencies]
 chrono          = "0.4.23"
-clap            = { version = "4", features = [ "derive" ] }
+clap            = { version = "4.5.51", features = [ "derive" ] }
 log             = "0.4.8"
 serde           = { version = "1.0.95", features = [ "derive" ] }
 tokio           = { version = "1.40", features = [ "macros", "signal" ], optional = true }
